@@ -1,0 +1,8 @@
+---
+- name: Install Docker Engine (pinned, held)
+  ansible.builtin.import_tasks: install.yml
+  tags: [docker, docker_install]
+
+- name: Daemon configuration
+  ansible.builtin.import_tasks: daemon.yml
+  tags: [docker, docker_daemon]

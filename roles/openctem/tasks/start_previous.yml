@@ -1,0 +1,20 @@
+---
+# Starts the release named by compose.yml WITHOUT its one-shot jobs. Used
+# when going back to an older release: its migration job would refuse a
+# database a newer release already migrated ("no migration found for
+# version N"), and an older API runs on the newer schema. The database roles
+# and grants are already in place from the newer release.
+- name: Services of the compose file
+  ansible.builtin.command:
+    cmd: "{{ openctem_compose }} config --services"
+    chdir: "{{ openctem_root }}"
+  changed_when: false
+  register: openctem_prev_services
+
+- name: Start the long-running services only (no migrations, no one-shot jobs)
+  ansible.builtin.command:
+    cmd: >-
+      {{ openctem_compose }} up -d --no-deps --remove-orphans --wait --wait-timeout {{ openctem_health_timeout }}
+      {{ openctem_prev_services.stdout_lines | reject('in', openctem_oneshot_services) | join(' ') }}
+    chdir: "{{ openctem_root }}"
+  changed_when: true

@@ -1,0 +1,55 @@
+---
+# Read-only exposure audit of every container on the host (not only
+# OpenCTEM's): published ports (they bypass ufw), privileged mode, host
+# network, the Docker socket mounted. Prints no environment or secrets.
+- name: Container exposure audit
+  hosts: openctem
+  become: true
+  gather_facts: false
+  tags: [audit]
+  vars:
+    # Containers allowed to publish a port beyond 127.0.0.1, after review.
+    exposure_allowed_containers: []
+  tasks:
+    - name: Container ids
+      ansible.builtin.command: docker ps -q
+      changed_when: false
+      register: exposure_ids
+
+    - name: Inspect containers (output kept out of the log)
+      ansible.builtin.command:
+        argv: [docker, inspect, --format, '{{ "{{json .}}" }}', '{{ item }}']
+      changed_when: false
+      loop: "{{ exposure_ids.stdout_lines }}"
+      register: exposure_inspect
+      no_log: true
+
+    - name: Summarize (name, non-loopback bindings, privileged, network mode, docker.sock)
+      ansible.builtin.set_fact:
+        exposure: >-
+          {{ exposure | default([]) + [{
+               'name': (item.stdout | from_json).Name | regex_replace('^/', ''),
+               'public_bindings': ((item.stdout | from_json).NetworkSettings.Ports | default({}, true)
+                             | dict2items | selectattr('value') | map(attribute='value') | flatten
+                             | map(attribute='HostIp') | reject('in', ['127.0.0.1', '::1']) | list),
+               'privileged': (item.stdout | from_json).HostConfig.Privileged | default(false),
+               'network_mode': (item.stdout | from_json).HostConfig.NetworkMode | default(''),
+               'docker_sock': ((item.stdout | from_json).Mounts | default([]) | map(attribute='Source') | select('search', 'docker.sock') | list | length > 0)
+             }] }}
+      loop: "{{ exposure_inspect.results }}"
+      loop_control:
+        label: "{{ item.item }}"
+      no_log: true
+
+    - name: Findings
+      ansible.builtin.debug:
+        msg: "{{ exposure | default([]) }}"
+
+    - name: No port published beyond loopback, no privileged/host-network/docker.sock container
+      ansible.builtin.assert:
+        that:
+          - exposure | default([]) | rejectattr('name', 'in', exposure_allowed_containers) | selectattr('public_bindings') | list | length == 0
+          - exposure | default([]) | selectattr('privileged') | list | length == 0
+          - exposure | default([]) | selectattr('network_mode', 'equalto', 'host') | list | length == 0
+          - exposure | default([]) | selectattr('docker_sock') | list | length == 0
+        fail_msg: 'Exposure found: review the findings above (published ports bypass ufw).'

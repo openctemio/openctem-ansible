@@ -1,0 +1,12 @@
+---
+# Exact pins. Bump deliberately: read the collection changelog, rerun the
+# --check --diff stage on a snapshot, then change the version here.
+# Installed into ./collections (git-ignored):
+#   ansible-galaxy collection install -r requirements.yml -p ./collections
+collections:
+  - name: devsec.hardening
+    version: "10.6.0"
+  - name: community.general
+    version: "13.5.0"
+  - name: ansible.posix
+    version: "2.2.2"

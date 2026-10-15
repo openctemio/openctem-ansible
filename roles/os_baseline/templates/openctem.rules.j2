@@ -1,0 +1,39 @@
+## Managed by Ansible (roles/os_baseline). Loaded by augenrules.
+## Focus: identity, privilege, SSH, Docker and the OpenCTEM secrets.
+
+## Identity and privilege
+-w /etc/passwd -p wa -k identity
+-w /etc/group -p wa -k identity
+-w /etc/shadow -p wa -k identity
+-w /etc/gshadow -p wa -k identity
+-w /etc/sudoers -p wa -k privilege
+-w /etc/sudoers.d/ -p wa -k privilege
+
+## SSH configuration and keys
+-w /etc/ssh/sshd_config -p wa -k sshd
+-w /etc/ssh/sshd_config.d/ -p wa -k sshd
+-w /root/.ssh/ -p wa -k ssh_keys
+-w /home/ubuntu/.ssh/ -p wa -k ssh_keys
+
+## Docker: who talks to the daemon and changes its config
+-w /usr/bin/docker -p x -k docker
+-w /var/run/docker.sock -p rwxa -k docker_sock
+-w /etc/docker/ -p wa -k docker
+-w /etc/systemd/system/docker.service.d/ -p wa -k docker
+
+## OpenCTEM deployment and secrets (reads included)
+-w /opt/openctem/secrets/ -p rwa -k openctem_secrets
+-w /opt/openctem/compose.yml -p wa -k openctem
+-w /opt/openctem/compose.cloudflared.yml -p wa -k openctem
+-w /opt/openctem/.env -p wa -k openctem
+-w /etc/apt/sources.list.d/ -p wa -k apt_sources
+
+## Firewall and kernel modules
+-w /etc/ufw/ -p wa -k firewall
+-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k modules
+
+## Time changes
+-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time_change
+
+## Commands run as root by a logged-in user
+-a always,exit -F arch=b64 -F euid=0 -F auid>=1000 -F auid!=unset -S execve -k root_cmd

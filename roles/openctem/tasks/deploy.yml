@@ -1,0 +1,164 @@
+---
+# The new compose file is rendered beside the running one; the running one
+# becomes compose.prev.yml (the rollback target) only when they differ, so
+# rerunning an unchanged deploy never overwrites the rollback target.
+- name: Render the new compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ openctem_root }}/compose.next.yml"
+    owner: root
+    group: root
+    mode: '0644'
+    validate: docker compose -p {{ openctem_project }} -f %s config --quiet
+
+- name: Running and new compose files
+  ansible.builtin.stat:
+    path: "{{ openctem_root }}/{{ item }}"
+    get_checksum: true
+  loop: [compose.yml, compose.next.yml]
+  register: openctem_compose_files
+
+- name: Compare
+  ansible.builtin.set_fact:
+    openctem_compose_before: "{{ openctem_compose_files.results[0] }}"
+    openctem_compose_changed: >-
+      {{ not openctem_compose_files.results[0].stat.exists
+         or openctem_compose_files.results[0].stat.checksum != (openctem_compose_files.results[1].stat.checksum | default('')) }}
+
+- name: Keep the running compose file as the rollback target
+  ansible.builtin.copy:
+    src: "{{ openctem_root }}/compose.yml"
+    dest: "{{ openctem_root }}/compose.prev.yml"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0644'
+  when: openctem_compose_before.stat.exists and openctem_compose_changed | bool and not ansible_check_mode
+
+- name: Deploy, roll back on failure
+  block:
+    - name: Install the new compose file
+      ansible.builtin.copy:
+        src: "{{ openctem_root }}/compose.next.yml"
+        dest: "{{ openctem_root }}/compose.yml"
+        remote_src: true
+        owner: root
+        group: root
+        mode: '0644'
+      when: openctem_compose_changed | bool and not ansible_check_mode
+
+    - name: Compose project settings (file list, project name; no secrets)
+      ansible.builtin.copy:
+        dest: "{{ openctem_root }}/.env"
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (roles/openctem).
+          COMPOSE_PROJECT_NAME={{ openctem_project }}
+          COMPOSE_FILE={{ 'compose.yml:compose.cloudflared.yml' if openctem_ingress == 'cloudflared' else 'compose.yml' }}
+
+    - name: No connector fragment without the cloudflared ingress
+      ansible.builtin.file:
+        path: "{{ openctem_root }}/compose.cloudflared.yml"
+        state: absent
+      when: openctem_ingress != 'cloudflared'
+
+    - name: Validate the merged project
+      ansible.builtin.command:
+        cmd: "{{ openctem_compose }} config --quiet"
+        chdir: "{{ openctem_root }}"
+      changed_when: false
+
+    - name: Job signer key (created once)
+      ansible.builtin.import_tasks: signer.yml
+      when: openctem_job_signer | bool
+
+    - name: Pull the pinned images
+      ansible.builtin.command:
+        cmd: "{{ openctem_compose }} pull --quiet"
+        chdir: "{{ openctem_root }}"
+      changed_when: false
+      when: not ansible_check_mode
+
+    # --wait returns when every service is running/healthy and every
+    # one-shot job (migrations, roles) has completed successfully.
+    - name: Start or update the stack
+      ansible.builtin.command:
+        cmd: "{{ openctem_compose }} up -d --remove-orphans --wait --wait-timeout {{ openctem_health_timeout }}"
+        chdir: "{{ openctem_root }}"
+      register: openctem_up
+      changed_when: "'Started' in openctem_up.stderr or 'Recreated' in openctem_up.stderr or 'Created' in openctem_up.stderr"
+      when: not ansible_check_mode
+
+    # A config-only change (gateway sites) needs a gateway restart to apply.
+    - name: Restart the gateway when its config changed
+      ansible.builtin.command:
+        cmd: "{{ openctem_compose }} restart gateway"
+        chdir: "{{ openctem_root }}"
+      changed_when: true
+      when:
+        - not ansible_check_mode
+        - openctem_release_copy.changed or openctem_site_tpl.changed
+        - "'gateway' not in (openctem_up.stderr | default(''))"
+
+    - name: Verify health and routing
+      ansible.builtin.command: /usr/local/sbin/openctem-verify
+      register: openctem_verify
+      changed_when: false
+      retries: 12
+      delay: 10
+      until: openctem_verify.rc == 0
+      when: not ansible_check_mode
+
+  rescue:
+    - name: Verification output
+      ansible.builtin.debug:
+        var: openctem_verify.stdout_lines
+      when: openctem_verify is defined and openctem_verify.stdout_lines is defined
+
+    - name: Roll back to the previous compose file
+      ansible.builtin.copy:
+        src: "{{ openctem_root }}/compose.prev.yml"
+        dest: "{{ openctem_root }}/compose.yml"
+        remote_src: true
+        owner: root
+        group: root
+        mode: '0644'
+      when: openctem_compose_before.stat.exists and openctem_compose_changed | bool
+
+    - name: Start the previous release (without its migration job)
+      ansible.builtin.include_tasks: start_previous.yml
+      when: openctem_compose_before.stat.exists
+
+    - name: Verify the previous release
+      ansible.builtin.command: /usr/local/sbin/openctem-verify
+      changed_when: false
+      failed_when: false
+      register: openctem_verify_prev
+      when: openctem_compose_before.stat.exists
+
+    - name: Stop with the outcome
+      ansible.builtin.fail:
+        msg: >-
+          Deploying {{ openctem_version }} failed.
+          {% if not openctem_compose_before.stat.exists %}First deploy: nothing to roll back to; inspect the compose logs.
+          {% elif openctem_compose_changed | bool %}Rolled back to the previous compose file ({{ openctem_prev_version or 'unknown' }});
+          verify {{ 'passed' if (openctem_verify_prev.rc | default(1)) == 0 else 'FAILED' }}. If the new release migrated the schema
+          and the old one misbehaves, restore the pre-upgrade backup (README, "Upgrade and rollback").
+          {% else %}The compose file did not change, so there was nothing to roll back; the stack was restarted
+          (verify {{ 'passed' if (openctem_verify_prev.rc | default(1)) == 0 else 'FAILED' }}).{% endif %}
+
+- name: Record the deployed release
+  ansible.builtin.copy:
+    dest: "{{ openctem_state_dir }}/deployed-version"
+    content: "{{ openctem_version }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+  when: not ansible_check_mode
+
+- name: Show verification
+  ansible.builtin.debug:
+    var: openctem_verify.stdout_lines
+  when: not ansible_check_mode

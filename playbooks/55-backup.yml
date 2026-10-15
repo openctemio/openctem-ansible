@@ -1,0 +1,21 @@
+---
+# Daily backup timer (pg_dump + uploaded files + generated secrets), age-encrypted when backup_age_recipient is set, plus restore-drill and restore tools.
+# Opt-in: -e apply_backup=true (or set it in your inventory). Without it this play
+# does nothing. Rehearse with --check --diff first.
+- name: OpenCTEM backups
+  hosts: openctem
+  become: true
+  gather_facts: true
+  tags: [backup]
+  pre_tasks:
+    - name: Skip unless apply_backup is true
+      ansible.builtin.meta: end_play
+      when: not (apply_backup | default(false) | bool)
+    - name: Check the target OS
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Ubuntu'
+          - ansible_facts.distribution_version is version(openctem_min_ubuntu | default('24.04'), '>=')
+        fail_msg: 'Unsupported OS {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.'
+  roles:
+    - role: backup

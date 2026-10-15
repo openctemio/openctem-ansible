@@ -1,0 +1,46 @@
+---
+- name: Install fail2ban
+  ansible.builtin.apt:
+    name: [fail2ban]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Sshd jail
+  ansible.builtin.copy:
+    dest: /etc/fail2ban/jail.d/openctem-sshd.local
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      # Managed by Ansible (roles/ssh).
+      [DEFAULT]
+      ignoreip = 127.0.0.1/8 ::1 {{ ssh_fail2ban_ignore_cidrs | join(' ') }}
+      bantime = 1h
+      bantime.increment = true
+      findtime = 10m
+      maxretry = 5
+      backend = systemd
+
+      [sshd]
+      enabled = true
+      mode = aggressive
+  register: ssh_f2b_jail
+
+- name: Enable fail2ban
+  ansible.builtin.systemd_service:
+    name: fail2ban
+    enabled: true
+    state: "{{ 'restarted' if ssh_f2b_jail.changed else 'started' }}"
+
+- name: Jail status
+  ansible.builtin.command: fail2ban-client status sshd
+  changed_when: false
+  check_mode: false
+  register: ssh_f2b_status
+  when: not ansible_check_mode
+
+- name: Show jail status
+  ansible.builtin.debug:
+    var: ssh_f2b_status.stdout_lines
+  when: not ansible_check_mode

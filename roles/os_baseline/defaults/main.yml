@@ -1,0 +1,22 @@
+---
+# Each component can be turned off on its own.
+os_baseline_unattended_upgrades: true
+# Security updates only; a reboot is never automatic unless the owner sets this.
+os_baseline_unattended_reboot: false
+os_baseline_unattended_reboot_time: '03:30'
+os_baseline_chrony: true
+os_baseline_auditd: true
+os_baseline_journald: true
+os_baseline_journald_system_max_use: 1G
+os_baseline_journald_max_retention: 1month
+# DevSec OS hardening (devsec.hardening.os_hardening) with the settings a
+# Docker host needs. Turn off to keep only the components above.
+os_baseline_devsec_os: true
+os_baseline_devsec_vars:
+  os_pam_enabled: false
+  os_user_pw_ageing: false
+  os_chmod_home_folders: false
+  os_filesystem_whitelist: ['overlay', 'squashfs']
+  # Docker bridge NAT needs forwarding; the role would turn it off.
+  sysctl_overwrite:
+    net.ipv4.ip_forward: 1

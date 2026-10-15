@@ -1,0 +1,12 @@
+---
+# Stage 1: DevSec SSH hardening with password login still allowed.
+# Stage 2: keys only, after a key-only login from the controller is proven.
+ssh_stage: 1
+ssh_fail2ban: true
+ssh_fail2ban_ignore_cidrs: "{{ admin_cidrs | default([]) }}"
+# DevSec ssh_hardening settings shared by both stages.
+ssh_devsec_vars:
+  ssh_permit_root_login: 'no'
+  ssh_allow_tcp_forwarding: 'no'
+  ssh_x11_forwarding: false
+  ssh_max_auth_retries: 3

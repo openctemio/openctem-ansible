@@ -1,0 +1,32 @@
+---
+- name: Read-only post change checks
+  hosts: openctem
+  become: true
+  gather_facts: true
+  tags: [audit]
+  tasks:
+    - name: Services and sysctl
+      ansible.builtin.shell: |
+        echo '[SSH]'; sshd -t && systemctl is-active ssh
+        echo '[DOCKER]'; systemctl is-active docker; docker ps --format 'table {{ "{{.Names}}" }}\t{{ "{{.Status}}" }}\t{{ "{{.Ports}}" }}'
+        echo '[FORWARD]'; sysctl net.ipv4.ip_forward
+        echo '[SECURITY]'; systemctl is-active auditd fail2ban chrony || true
+        echo '[TIMERS]'; systemctl list-timers 'openctem-*' --no-pager || true
+        echo '[OPENCTEM]'; /usr/local/sbin/openctem-verify 2>&1 || true
+        echo '[EXPOSURE]'; ss -lntup
+        echo '[FIREWALL]'; ufw status verbose || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+      register: report
+    - name: Display report
+      ansible.builtin.debug:
+        var: report.stdout_lines
+    - name: Assert forwarding for Docker bridge networking
+      ansible.builtin.command: sysctl -n net.ipv4.ip_forward
+      changed_when: false
+      register: forward
+    - name: Require forwarding = 1
+      ansible.builtin.assert:
+        that: forward.stdout == '1'
+        fail_msg: 'IPv4 forwarding is disabled; Docker bridge NAT may be broken.'

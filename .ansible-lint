@@ -1,0 +1,9 @@
+---
+profile: production
+exclude_paths:
+  - collections/
+  - .github/
+  - reports/
+# Vendored release files (gateway config, SQL) are not Ansible content.
+  - roles/openctem/files/
+offline: true

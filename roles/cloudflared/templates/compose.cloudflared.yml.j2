@@ -1,0 +1,68 @@
+# {{ ansible_managed }}
+# Cloudflare Tunnel connector, merged with compose.yml (COMPOSE_FILE in
+# {{ openctem_root }}/.env). It reaches only the gateway, on the internal
+# tunnel network, and the Cloudflare edge through its own egress network.
+# Dashboard route: https://{{ openctem_app_host }} -> http://gateway:80
+services:
+  cloudflared:
+    image: {{ cloudflared_image }}
+    user: "65532:65532"
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --metrics
+      - 127.0.0.1:20241
+      # No pprof/metrics through the management channel.
+      - --management-diagnostics=false
+{% if cloudflared_management == 'local' %}
+      - --config
+      - /etc/cloudflared/config.yml
+{% endif %}
+      - run
+      - --token-file
+      - /run/secrets/tunnel_token
+    secrets: [tunnel_token]
+{% if cloudflared_management == 'local' %}
+    volumes:
+      - {{ openctem_root }}/cloudflared.yml:/etc/cloudflared/config.yml:ro
+{% endif %}
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    healthcheck:
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:20241", "ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      gateway:
+        condition: service_healthy
+    networks:
+      tunnel:
+        ipv4_address: {{ openctem_net_tunnel }}.10
+      egress_tunnel: {}
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          pids: 128
+          memory: {{ cloudflared_mem }}
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+secrets:
+  tunnel_token:
+    file: {{ cloudflared_token_file }}
+
+networks:
+  egress_tunnel:
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+    ipam:
+      config:
+        - subnet: {{ cloudflared_net_egress }}.0/24

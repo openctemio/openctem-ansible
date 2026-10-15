@@ -1,0 +1,94 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Host monitor (systemd timer). Checks container health and routing
+# (openctem-verify), disk usage, backup freshness, and - from outside, through
+# Cloudflare - the tunnel path, the edge certificate, that Access guards the
+# console and that the bypassed sensor path still reaches the API. Alerts go
+# to journald (tag openctem-monitor) and, when configured, to a webhook. Exits 1 while any alert is active.
+set -uo pipefail
+APP='{{ openctem_app_host }}'
+DISK_WARN='{{ monitoring_disk_warn_percent | int }}'
+BACKUP_MAX_AGE=$(( {{ monitoring_backup_max_age_hours | int }} * 3600 ))
+CERT_WARN=$(( {{ monitoring_cert_warn_days | int }} * 86400 ))
+BSTATE='{{ monitoring_backup_state_dir }}'
+EXTERNAL='{{ 'yes' if monitoring_external_probes | bool else 'no' }}'
+REPEAT='{{ monitoring_repeat_seconds | int }}'
+MSTATE=/var/lib/openctem-monitor
+ENVF=/etc/openctem/monitor.env
+{% raw %}
+mkdir -p "$MSTATE"; chmod 0700 "$MSTATE"
+
+alerts=()
+alert() { alerts+=("$*"); logger -t openctem-monitor -p user.warning -- "ALERT $*"; }
+info() { logger -t openctem-monitor -p user.info -- "$*"; }
+
+# 1. Stack: health, published ports, routing on both host names.
+if [ -x /usr/local/sbin/openctem-verify ]; then
+	out="$(/usr/local/sbin/openctem-verify 2>&1)" || true
+	while IFS= read -r l; do
+		case "$l" in FAIL*) alert "stack: ${l#FAIL }" ;; esac
+	done <<< "$out"
+fi
+
+# 2. Disk.
+for m in / /var/lib/docker; do
+	[ -d "$m" ] || continue
+	use="$(df -P "$m" | awk 'NR==2 { sub(/%/, "", $5); print $5 }')"
+	[ -n "$use" ] && [ "$use" -ge "$DISK_WARN" ] && alert "disk $m at ${use}% (warn ${DISK_WARN}%)"
+done
+
+# 3. Backups (when installed).
+if [ -f /etc/systemd/system/openctem-backup.service ]; then
+	last="$(cat "$BSTATE/last_success" 2> /dev/null || echo 0)"
+	age=$(( $(date +%s) - last ))
+	[ "$age" -gt "$BACKUP_MAX_AGE" ] && alert "last successful backup $(( age / 3600 ))h ago"
+	[ "$(cat "$BSTATE/last_exit" 2> /dev/null || echo 0)" != 0 ] && alert "last backup run failed (journalctl -u openctem-backup)"
+fi
+
+# 4. From outside, through Cloudflare.
+# challenged <path>: Access must stop an anonymous request (302 to the team
+# login or 401/403); a 200 means the path is open without Access.
+challenged() {
+	local r
+	r="$(curl -sS -o /dev/null -m 15 -w '%{http_code} %{redirect_url}' "https://$APP$1" 2> /dev/null)"
+	case "$r" in
+	302\ *cloudflareaccess.com*|401\ *|403\ *) ;;
+	*) alert "https://$APP$1 answered '$r' without a Cloudflare Access challenge" ;;
+	esac
+}
+if [ "$EXTERNAL" = yes ]; then
+	challenged /
+	challenged /api/v1/me
+	# Bypassed machine path: reaches the API (401 = no sensor key), not Access.
+	code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "https://$APP/api/v2/sensor/hello" 2> /dev/null)"
+	[ "$code" = 401 ] || alert "sensor path https://$APP/api/v2/sensor/hello answered ${code:-nothing} (want 401: tunnel down, or Access bypass missing)"
+	if ! echo | openssl s_client -connect "$APP:443" -servername "$APP" 2> /dev/null | openssl x509 -noout -checkend "$CERT_WARN" > /dev/null 2>&1; then
+		alert "edge certificate of $APP expires within $(( CERT_WARN / 86400 )) days or could not be read"
+	fi
+fi
+
+# 5. Notify on change (and repeat every $REPEAT s while active).
+digest="$(printf '%s\n' "${alerts[@]:-}" | sha256sum | cut -d' ' -f1)"
+prev="$(cat "$MSTATE/digest" 2> /dev/null || true)"
+sent="$(cat "$MSTATE/sent_at" 2> /dev/null || echo 0)"
+now="$(date +%s)"
+if [ "${#alerts[@]}" -eq 0 ]; then
+	[ -n "$prev" ] && [ "$prev" != none ] && info "all checks pass again"
+	echo none > "$MSTATE/digest"
+	exit 0
+fi
+if [ "$digest" != "$prev" ] || [ $(( now - sent )) -ge "$REPEAT" ]; then
+	echo "$digest" > "$MSTATE/digest"
+	echo "$now" > "$MSTATE/sent_at"
+	WEBHOOK_URL=""
+	# shellcheck disable=SC1090
+	[ -r "$ENVF" ] && . "$ENVF"
+	if [ -n "$WEBHOOK_URL" ]; then
+		printf '%s\n' "$(hostname): ${#alerts[@]} OpenCTEM alert(s)" "${alerts[@]}" |
+			python3 -c 'import json,sys; print(json.dumps({"text": sys.stdin.read()}))' |
+			curl -sS -m 10 -o /dev/null -H 'Content-Type: application/json' --data-binary @- "$WEBHOOK_URL" ||
+			logger -t openctem-monitor -p user.err -- "webhook delivery failed"
+	fi
+fi
+exit 1
+{% endraw %}

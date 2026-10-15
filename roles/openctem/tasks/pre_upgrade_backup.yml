@@ -1,0 +1,31 @@
+---
+- name: The backup service is installed (playbooks/55-backup.yml)
+  ansible.builtin.stat:
+    path: /etc/systemd/system/openctem-backup.service
+  register: openctem_backup_unit
+
+- name: Refuse to upgrade without a backup
+  ansible.builtin.assert:
+    that: openctem_backup_unit.stat.exists
+    fail_msg: >-
+      Upgrade {{ openctem_prev_version }} -> {{ openctem_version }} needs a backup first: run playbooks/55-backup.yml,
+      or pass -e openctem_backup_before_upgrade=false after taking one by hand.
+
+# The oneshot unit returns when the backup has finished (or failed).
+- name: Back up now
+  ansible.builtin.systemd_service:
+    name: openctem-backup.service
+    state: started
+  when: not ansible_check_mode
+
+- name: Result of the backup run
+  ansible.builtin.systemd_service:
+    name: openctem-backup.service
+  register: openctem_backup_result
+  when: not ansible_check_mode
+
+- name: The backup succeeded
+  ansible.builtin.assert:
+    that: openctem_backup_result.status.Result == 'success'
+    fail_msg: 'Pre-upgrade backup failed (journalctl -u openctem-backup): not upgrading.'
+  when: not ansible_check_mode

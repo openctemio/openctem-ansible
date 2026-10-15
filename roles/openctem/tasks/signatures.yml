@@ -1,0 +1,30 @@
+---
+# Keyless cosign verification of every OpenCTEM image digest against the
+# release workflow's identity at this exact tag, BEFORE anything is pulled
+# into the stack. cosign itself runs from an image pinned by digest.
+- name: Verify the release signatures
+  ansible.builtin.command:
+    argv:
+      - docker
+      - run
+      - --rm
+      - --read-only
+      - --cap-drop=ALL
+      - --security-opt=no-new-privileges:true
+      - --tmpfs=/tmp:size=64m
+      - --env=HOME=/tmp
+      - "{{ openctem_cosign_image }}"
+      - verify
+      - "{{ item.value }}"
+      - --certificate-identity
+      - "{{ openctem_cosign_identity }}"
+      - --certificate-oidc-issuer
+      - "{{ openctem_cosign_issuer }}"
+      - --output
+      - text
+  loop: "{{ openctem_releases[openctem_version] | dict2items }}"
+  loop_control:
+    label: "{{ item.key }}"
+  changed_when: false
+  check_mode: false
+  register: openctem_cosign

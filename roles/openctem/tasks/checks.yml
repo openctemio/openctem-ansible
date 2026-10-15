@@ -1,0 +1,42 @@
+---
+- name: The requested release is pinned in this kit
+  ansible.builtin.assert:
+    that:
+      - openctem_version in openctem_releases
+      - openctem_releases[openctem_version].api is search('@sha256:[0-9a-f]{64}$')
+      - openctem_releases[openctem_version].web is search('@sha256:[0-9a-f]{64}$')
+      - openctem_releases[openctem_version].gateway is search('@sha256:[0-9a-f]{64}$')
+      - openctem_releases[openctem_version].migrations is search('@sha256:[0-9a-f]{64}$')
+      - openctem_postgres_image is search('@sha256:[0-9a-f]{64}$')
+      - openctem_redis_image is search('@sha256:[0-9a-f]{64}$')
+      - cloudflared_image is search('@sha256:[0-9a-f]{64}$')
+    fail_msg: '{{ openctem_version }} is not in openctem_releases, or an image is not pinned by digest (scripts/vendor-release.sh).'
+
+- name: Extra API settings are plain names and not owned by this role
+  ansible.builtin.assert:
+    that:
+      - openctem_api_env is mapping
+      - openctem_api_env.keys() | reject('match', '^[A-Z][A-Z0-9_]*$') | list | length == 0
+      - openctem_api_env.keys() | select('search', 'PASSWORD|SECRET|KEY$|TOKEN') | list | length == 0
+      - openctem_api_env.keys() | intersect(openctem_api_env_reserved) | list | length == 0
+    fail_msg: >-
+      openctem_api_env takes non-secret UPPER_CASE settings only, none of {{ openctem_api_env_reserved }};
+      secrets are generated on the host.
+
+- name: Docker and the compose plugin are installed
+  ansible.builtin.command: docker compose version --short
+  changed_when: false
+  check_mode: false
+  register: openctem_compose_version
+
+- name: Ingress connector rendered first (roles/cloudflared)
+  ansible.builtin.stat:
+    path: "{{ openctem_root }}/compose.cloudflared.yml"
+  register: openctem_cf_fragment
+  when: openctem_ingress == 'cloudflared'
+
+- name: The cloudflared role ran before this one
+  ansible.builtin.assert:
+    that: openctem_cf_fragment.stat.exists
+    fail_msg: 'openctem_ingress=cloudflared: run the cloudflared role first (playbooks/50-openctem.yml does).'
+  when: openctem_ingress == 'cloudflared' and not ansible_check_mode

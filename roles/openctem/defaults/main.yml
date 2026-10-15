@@ -1,0 +1,65 @@
+---
+# OpenCTEM platform: gateway, web, API, Postgres, Redis (+ optional job
+# signer). Shared paths: roles/openctem_common. Pins: versions.yml.
+
+# Gateway config and SQL of each release, kept side by side so a rollback
+# to the previous compose file finds its own release files.
+openctem_release_root: "{{ openctem_root }}/releases/{{ openctem_version }}"
+
+# Keyless signature identity: the release workflow at that exact tag.
+openctem_cosign_identity: "https://github.com/openctemio/openctem/.github/workflows/docker-publish.yml@refs/tags/{{ openctem_version }}"
+openctem_cosign_issuer: https://token.actions.githubusercontent.com
+openctem_verify_signatures: true
+
+# --- Networks ------------------------------------------------------------------------
+# tunnel  (internal) ingress <-> gateway only (openctem_net_tunnel, common)
+# origin  (internal) gateway <-> web, api (fixed addresses: the API trusts
+#                    X-Real-IP only from the gateway and web)
+# data    (internal) api, migrate, db-roles <-> postgres, redis
+# egress_api         api -> internet (feeds, OIDC keys for CI, SMTP, integrations)
+openctem_net_origin: 172.30.80
+openctem_net_data: 172.30.82
+openctem_net_egress_api: 172.30.84
+
+# --- Job signer (signed sensor jobs, docs/architecture/job-signing.md) ------------
+# Off by default, like the upstream stack. When on, the API hands a sensor
+# only jobs the signer signed; the key is created once in its own volume.
+openctem_job_signer: false
+
+# --- Sizing: 4 vCPU / 7 GB host, ~1.5 GB left to the OS ------------------------------
+openctem_mem_postgres: 2g
+openctem_mem_api: 1536m
+openctem_api_gomemlimit: 1200MiB
+openctem_mem_web: 768m
+openctem_mem_redis: 512m
+openctem_mem_gateway: 256m   # Caddy gateway (plane routing)
+openctem_mem_signer: 128m
+openctem_pg_shared_buffers: 512MB
+openctem_pg_effective_cache_size: 2GB
+openctem_pg_work_mem: 8MB
+openctem_pg_maintenance_work_mem: 128MB
+openctem_pg_max_wal_size: 1GB
+openctem_pg_shm_size: 256m
+openctem_cpus_api: '2.0'
+openctem_cpus_web: '1.0'
+openctem_cpus_postgres: '2.0'
+
+openctem_log_level: info
+openctem_tenant_creation_mode: admin_only
+# Extra NON-SECRET API settings (env_registry names), e.g.
+#   ASSET_COVERAGE_ENABLED: "false"      platform-wide off switch for automatic coverage
+#   ASSET_COVERAGE_DAILY_BUDGET: "2000"  attempts per organization per 24 h (default 5000)
+# Settings this role owns (database, Redis, keys, public URL, proxies) are refused.
+openctem_api_env: {}
+openctem_api_env_reserved: [APP_ENV, APP_URL, SENSOR_PUBLIC_API_URL, SERVER_TRUSTED_PROXIES, SERVER_HOST, SERVER_PORT,
+                            DB_HOST, DB_PORT, DB_USER, DB_NAME, DB_SSLMODE, REDIS_HOST, REDIS_PORT, REDIS_TLS_ENABLED,
+                            REDIS_TLS_CA_FILE, AUTH_COOKIE_SECURE, AUTH_COOKIE_DOMAIN, SIGNER_SOCKET, CORS_ALLOWED_ORIGINS]
+
+# One-shot jobs of the compose file (skipped when starting an older release).
+openctem_oneshot_services: [gateway-init, datastore-tls, db-roles, migrate]
+
+# --- Upgrade ---------------------------------------------------------------------------
+# A backup must succeed before images change on a running installation.
+openctem_backup_before_upgrade: true
+# Seconds to wait for every service to become healthy.
+openctem_health_timeout: 300

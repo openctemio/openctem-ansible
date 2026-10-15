@@ -1,0 +1,460 @@
+{% set rel = openctem_releases[openctem_version] %}
+# {{ ansible_managed }}
+# OpenCTEM {{ openctem_version }}. The only way in is the gateway on the
+# tunnel network: cloudflared (compose.cloudflared.yml, roles/cloudflared) or,
+# with openctem_ingress=loopback, 127.0.0.1:{{ openctem_loopback_port }}.
+# Rendered by roles/openctem; edit the role, not this file.
+#
+#   https://{{ openctem_app_host }} (Cloudflare: Access for people, Bypass on
+#   the machine paths) -> cloudflared -> http://gateway:80 -> web / api
+#
+# Secrets: env files and files under {{ openctem_secrets_dir }} (0700 root),
+# generated on this server; nothing secret is in this file.
+name: {{ openctem_project }}
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "20m"
+    max-file: "5"
+
+x-hardening: &hardening
+  cap_drop: [ALL]
+  security_opt:
+    - no-new-privileges:true
+
+services:
+  # --- Gateway: one origin, routes web and API planes (plain HTTP inside) -------
+  gateway-init:
+    image: {{ rel.gateway }}
+    user: "0:0"
+    entrypoint: ["chown", "-R", "1000:1000", "/data", "/config"]
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    volumes:
+      - gateway-data:/data
+      - gateway-config:/config
+    restart: "no"
+    logging: *logging
+
+  gateway:
+    image: {{ rel.gateway }}
+    user: "1000:1000"
+{% if openctem_ingress == 'loopback' %}
+    ports:
+      - "127.0.0.1:{{ openctem_loopback_port }}:80"
+{% endif %}
+    entrypoint: ["/bin/sh", "/etc/caddy/entrypoint.sh"]
+    environment:
+      OPENCTEM_TLS_MODE: http
+      # TLS ends at Cloudflare (or your reverse proxy); the hop to the
+      # gateway stays on the tunnel network.
+      OPENCTEM_ALLOW_PLAIN_HTTP: "true"
+{% if openctem_ingress == 'cloudflared' %}
+      # Only cloudflared's X-Forwarded-For is believed (read right to left).
+      OPENCTEM_TRUSTED_PROXIES: {{ openctem_net_tunnel }}.10/32
+{% else %}
+      # The host's reverse proxy arrives through the published loopback port
+      # (no userland proxy: source = the tunnel network's gateway address).
+      OPENCTEM_TRUSTED_PROXIES: {{ openctem_net_tunnel }}.1/32
+{% endif %}
+      GATEWAY_MAX_BODY_SIZE: 256MB
+    volumes:
+      - {{ openctem_release_root }}/gateway:/etc/caddy:ro
+      - gateway-data:/data
+      - gateway-config:/config
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      gateway-init:
+        condition: service_completed_successfully
+      api:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+    networks:
+      tunnel:
+        ipv4_address: {{ openctem_net_tunnel }}.11
+      origin:
+        ipv4_address: {{ openctem_net_origin }}.10
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          pids: 256
+          memory: {{ openctem_mem_gateway }}
+    logging: *logging
+
+  # --- Web console --------------------------------------------------------------
+  web:
+    image: {{ rel.web }}
+    environment:
+      NODE_ENV: production
+      BACKEND_API_URL: http://api:8080
+      NEXT_PUBLIC_APP_URL: https://{{ openctem_app_host }}
+      SECURE_COOKIES: "true"
+      # Only the gateway reaches web (origin network), so its forwarded
+      # client address is believed.
+      TRUST_PROXY_HEADERS: "true"
+    init: true
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+      - /app/.next/cache:uid=1001,gid=1001,size=256m
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      origin:
+        ipv4_address: {{ openctem_net_origin }}.11
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          pids: 512
+          memory: {{ openctem_mem_web }}
+          cpus: "{{ openctem_cpus_web }}"
+    logging: *logging
+
+  # --- Database roles and migrations (one-shot, every up) ------------------------
+  db-roles:
+    image: {{ openctem_postgres_image }}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        exec psql -X -v ON_ERROR_STOP=1 \
+          -v app_user="$$DB_USER" -v app_password="$$DB_PASSWORD" \
+          -v migrator_user="$$DB_MIGRATE_USER" -v migrator_password="$$DB_MIGRATE_PASSWORD" \
+          -f /bootstrap/least-privilege-roles.sql
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGDATABASE: openctem
+      PGSSLMODE: require
+      PGUSER: postgres
+      DB_USER: openctem_app
+      DB_MIGRATE_USER: openctem_migrator
+    env_file:
+      - {{ openctem_secrets_dir }}/db-roles.env
+    volumes:
+      - {{ openctem_release_root }}/postgres:/bootstrap:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks: [data]
+    user: "999:999"
+    <<: *hardening
+    read_only: true
+    restart: "no"
+    logging: *logging
+
+  migrate:
+    image: {{ rel.migrations }}
+    # The password comes from PGPASSWORD (env file), not the URL, so it is
+    # in no command line.
+    command:
+      - -path=/migrations
+      - -database
+      - postgres://openctem_migrator@postgres:5432/openctem?sslmode=require
+      - up
+    env_file:
+      - {{ openctem_secrets_dir }}/migrate.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      db-roles:
+        condition: service_completed_successfully
+    networks: [data]
+    <<: *hardening
+    read_only: true
+    restart: "no"
+    logging: *logging
+
+  # --- API ------------------------------------------------------------------------
+  api:
+    image: {{ rel.api }}
+    environment:
+      APP_NAME: openctem
+      APP_ENV: production
+      SERVER_HOST: 0.0.0.0
+      SERVER_PORT: "8080"
+      # X-Real-IP / X-Forwarded-For believed from the gateway and web only.
+      SERVER_TRUSTED_PROXIES: {{ openctem_net_origin }}.10,{{ openctem_net_origin }}.11
+      # The one public origin: CORS allow-list, e-mail links, SSO/OAuth
+      # callbacks, and the URL sensors and CI are given (SENSOR_PUBLIC_API_URL
+      # unset = this). Cookies are host-only (AUTH_COOKIE_DOMAIN unset).
+      APP_URL: https://{{ openctem_app_host }}
+      AUTH_COOKIE_SECURE: "true"
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: openctem_app
+      DB_NAME: openctem
+      DB_SSLMODE: require
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+      REDIS_DB: "0"
+      REDIS_TLS_ENABLED: "true"
+      REDIS_TLS_CA_FILE: /datastore-tls/ca.crt
+      LOG_LEVEL: {{ openctem_log_level }}
+      LOG_FORMAT: json
+      GOMEMLIMIT: {{ openctem_api_gomemlimit }}
+      AUTH_PROVIDER: local
+      TENANT_CREATION_MODE: {{ openctem_tenant_creation_mode }}
+{% for key, value in openctem_api_env | dictsort %}
+      {{ key }}: {{ value | string | to_json }}
+{% endfor %}
+{% if openctem_job_signer | bool %}
+      SIGNER_SOCKET: /run/openctem-signer/signer.sock
+{% endif %}
+    # DB_PASSWORD, REDIS_PASSWORD, APP_ENCRYPTION_KEY, METRICS_TOKEN
+    env_file:
+      - {{ openctem_secrets_dir }}/api.env
+    healthcheck:
+      test: ["CMD", "/app/server", "-healthcheck"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+{% if openctem_job_signer | bool %}
+      signer:
+        condition: service_healthy
+{% endif %}
+    networks:
+      origin: {}
+      data: {}
+      egress_api: {}
+    volumes:
+      - datastore-tls:/datastore-tls:ro
+      - api-data:/app/data
+      - api-tmp:/tmp
+{% if openctem_job_signer | bool %}
+      - signer-socket:/run/openctem-signer
+{% endif %}
+    <<: *hardening
+    read_only: true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          pids: 1024
+          memory: {{ openctem_mem_api }}
+          cpus: "{{ openctem_cpus_api }}"
+    logging: *logging
+
+{% if openctem_job_signer | bool %}
+  # --- Job signer: no network, own key volume, socket shared with the API only --
+  signer:
+    image: {{ rel.api }}
+    entrypoint: ["/app/openctem-signer"]
+    command: ["serve"]
+    user: "1001:1000"
+    network_mode: none
+    environment:
+      SIGNER_KEY_FILE: /var/lib/openctem-signer/keys/signer.pem
+      SIGNER_SOCKET: /run/openctem-signer/signer.sock
+      SIGNER_STATE_DIR: /var/lib/openctem-signer/state
+    volumes:
+      - signer-keys:/var/lib/openctem-signer/keys
+      - signer-state:/var/lib/openctem-signer/state
+      - signer-socket:/run/openctem-signer
+    healthcheck:
+      test: ["CMD", "/app/openctem-signer", "healthcheck"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    <<: *hardening
+    read_only: true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          pids: 64
+          memory: {{ openctem_mem_signer }}
+    logging: *logging
+
+{% endif %}
+  # --- Datastores: internal network only, TLS between API and them ---------------
+  datastore-tls:
+    image: {{ openctem_postgres_image }}
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        set -eu
+        cd /tls
+        if [ ! -s ca.crt ]; then
+          openssl req -x509 -newkey rsa:3072 -nodes -days 3650 -subj "/CN=OpenCTEM datastore CA" -keyout ca.key -out ca.crt
+        fi
+        if [ -s server.crt ] && openssl x509 -checkend 2592000 -noout -in server.crt; then
+          exit 0
+        fi
+        openssl req -newkey rsa:2048 -nodes -subj "/CN=postgres" -keyout server.key -out server.csr
+        printf 'subjectAltName=DNS:postgres,DNS:redis\n' > server.ext
+        openssl x509 -req -in server.csr -CA ca.crt -CAkey ca.key -CAcreateserial -days 825 -extfile server.ext -out server.crt
+        cp server.key postgres.key && chown 999:999 postgres.key && chmod 0600 postgres.key
+        cp server.key redis.key && chown 999:1000 redis.key && chmod 0600 redis.key
+        rm -f server.key server.csr server.ext
+        chmod 0600 ca.key && chmod 0644 ca.crt server.crt
+        echo "datastore TLS certificates issued"
+    volumes:
+      - datastore-tls:/tls
+    network_mode: none
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt:
+      - no-new-privileges:true
+    restart: "no"
+    logging: *logging
+
+  postgres:
+    image: {{ openctem_postgres_image }}
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/tls/server.crt
+      - -c
+      - ssl_key_file=/tls/postgres.key
+      - -c
+      - shared_buffers={{ openctem_pg_shared_buffers }}
+      - -c
+      - effective_cache_size={{ openctem_pg_effective_cache_size }}
+      - -c
+      - work_mem={{ openctem_pg_work_mem }}
+      - -c
+      - maintenance_work_mem={{ openctem_pg_maintenance_work_mem }}
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - max_wal_size={{ openctem_pg_max_wal_size }}
+      - -c
+      - password_encryption=scram-sha-256
+    shm_size: {{ openctem_pg_shm_size }}
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_DB: openctem
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_superuser_password
+      POSTGRES_INITDB_ARGS: --auth-host=scram-sha-256
+    secrets: [db_superuser_password]
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - datastore-tls:/tls:ro
+    depends_on:
+      datastore-tls:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d openctem"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks: [data]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, SETGID, SETUID]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          pids: 512
+          memory: {{ openctem_mem_postgres }}
+          cpus: "{{ openctem_cpus_postgres }}"
+    logging: *logging
+
+  redis:
+    image: {{ openctem_redis_image }}
+    # requirepass and TLS settings come from the config file (secret, 0400,
+    # owned by the redis user), so the password is in no command line.
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    env_file:
+      - {{ openctem_secrets_dir }}/redis.env
+    volumes:
+      - redis-data:/data
+      - datastore-tls:/tls:ro
+      - {{ openctem_secrets_dir }}/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    depends_on:
+      datastore-tls:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "redis-cli --tls --cacert /tls/ca.crt ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [data]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_READ_SEARCH, SETGID, SETUID]
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          pids: 128
+          memory: {{ openctem_mem_redis }}
+    logging: *logging
+
+secrets:
+  db_superuser_password:
+    file: {{ openctem_secrets_dir }}/db_superuser_password
+
+volumes:
+  api-data:
+  api-tmp:
+  datastore-tls:
+  gateway-data:
+  gateway-config:
+  postgres-data:
+  redis-data:
+{% if openctem_job_signer | bool %}
+  signer-keys:
+  signer-state:
+  signer-socket:
+{% endif %}
+
+networks:
+  tunnel:
+    internal: {{ 'true' if openctem_ingress == 'cloudflared' else 'false' }}
+    ipam:
+      config:
+        - subnet: {{ openctem_net_tunnel }}.0/24
+  origin:
+    internal: true
+    ipam:
+      config:
+        - subnet: {{ openctem_net_origin }}.0/24
+  data:
+    internal: true
+    ipam:
+      config:
+        - subnet: {{ openctem_net_data }}.0/24
+  egress_api:
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+    ipam:
+      config:
+        - subnet: {{ openctem_net_egress_api }}.0/24

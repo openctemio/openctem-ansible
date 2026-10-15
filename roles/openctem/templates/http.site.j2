@@ -1,0 +1,27 @@
+# {{ ansible_managed }}
+# TLS mode `http` site for the Cloudflare Tunnel deployment; replaces the
+# release's modes/http.site (every other gateway file is the release's own).
+# TLS ends at Cloudflare's edge; cloudflared reaches this gateway on the
+# internal tunnel network only, as http://gateway:80.
+#
+# One origin, https://{{ openctem_app_host }}: the release's plane routing
+# (web console, API planes, sensor plane) unchanged. A request for any other
+# host name (a misrouted tunnel hostname, a direct probe) gets 404.
+http://:80 {
+	@not_app not host {{ openctem_app_host }}
+	handle @not_app {
+		respond 404
+	}
+	# CI pipelines: the OIDC token exchange carries its credential in the body
+	# (no Authorization header), so the release's credential split would send
+	# it to the web console, which refuses it (CSRF). Route the CI pipeline
+	# calls straight to the API, which authenticates them itself.
+	@ci_pipeline {
+		method POST
+		path_regexp ^/api/v1/ci/(oidc/exchange|runs/[A-Za-z0-9-]+/(results|baseline-diff|evaluate))$
+	}
+	handle @ci_pipeline {
+		import to_api
+	}
+	import openctem
+}

@@ -1,0 +1,17 @@
+---
+# Roll back to the compose file that ran before the last deploy/upgrade.
+#   ansible-playbook -i <inventory> playbooks/71-rollback.yml -e apply_rollback=true
+- name: OpenCTEM rollback
+  hosts: openctem
+  become: true
+  gather_facts: false
+  tags: [rollback]
+  pre_tasks:
+    - name: Skip unless apply_rollback is true
+      ansible.builtin.meta: end_play
+      when: not (apply_rollback | default(false) | bool)
+  tasks:
+    - name: Roll back
+      ansible.builtin.include_role:
+        name: openctem
+        tasks_from: rollback.yml

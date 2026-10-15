@@ -1,0 +1,20 @@
+---
+# Versions, key hash and fingerprint: versions.yml (repository root).
+docker_apt_url: https://download.docker.com/linux/ubuntu
+docker_apt_key_url: https://download.docker.com/linux/ubuntu/gpg
+# apt-mark hold, so unattended upgrades and apt upgrade never move them.
+docker_hold_packages: true
+# daemon.json: existing keys kept, these merged in.
+docker_log_max_size: '10m'
+docker_log_max_file: '3'
+docker_daemon_settings:
+  log-driver: json-file
+  log-opts:
+    max-size: "{{ docker_log_max_size }}"
+    max-file: "{{ docker_log_max_file }}"
+  live-restore: true
+  userland-proxy: false
+  no-new-privileges: true
+# Restart Docker when daemon.json changed. Safe before the stack runs; with
+# live-restore, running containers survive it.
+docker_daemon_restart: false

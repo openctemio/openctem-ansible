@@ -1,0 +1,8 @@
+# {{ ansible_managed }}
+# Ingress rules for a locally managed Cloudflare Tunnel (the dashboard cannot
+# set routes for it). Only the app host reaches the gateway; any other host
+# name that resolves to this tunnel gets 404.
+ingress:
+  - hostname: {{ openctem_app_host }}
+    service: http://gateway:80
+  - service: http_status:404

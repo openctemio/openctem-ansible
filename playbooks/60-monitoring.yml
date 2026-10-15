@@ -1,0 +1,21 @@
+---
+# Every 5 min: container health and routing, disk, backup age, tunnel path, edge certificate, Access enforcement; journald + optional webhook.
+# Opt-in: -e apply_monitoring=true (or set it in your inventory). Without it this play
+# does nothing. Rehearse with --check --diff first.
+- name: OpenCTEM monitoring
+  hosts: openctem
+  become: true
+  gather_facts: true
+  tags: [monitoring]
+  pre_tasks:
+    - name: Skip unless apply_monitoring is true
+      ansible.builtin.meta: end_play
+      when: not (apply_monitoring | default(false) | bool)
+    - name: Check the target OS
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Ubuntu'
+          - ansible_facts.distribution_version is version(openctem_min_ubuntu | default('24.04'), '>=')
+        fail_msg: 'Unsupported OS {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.'
+  roles:
+    - role: monitoring

@@ -1,0 +1,62 @@
+---
+# Manual rollback: the compose file that ran before the last deploy (its
+# image digests and its release's gateway files under releases/).
+# The database is NOT rolled back: an older API accepts a newer schema in
+# normal releases; when it does not, restore the pre-upgrade backup
+# (openctem-restore, README "Upgrade and rollback").
+- name: Previous compose file
+  ansible.builtin.stat:
+    path: "{{ openctem_root }}/compose.prev.yml"
+  register: openctem_prev_compose
+
+- name: There is something to roll back to
+  ansible.builtin.assert:
+    that: openctem_prev_compose.stat.exists
+    fail_msg: 'No compose.prev.yml: nothing to roll back to.'
+
+- name: Read the previous compose file
+  ansible.builtin.slurp:
+    src: "{{ openctem_root }}/compose.prev.yml"
+  register: openctem_prev_compose_raw
+
+- name: Release of the previous compose file
+  ansible.builtin.set_fact:
+    openctem_rollback_release: >-
+      {{ openctem_prev_compose_raw.content | b64decode
+         | regex_findall('(?m)^# OpenCTEM (v[0-9]+\.[0-9]+\.[0-9]+)') | first | default('') }}
+
+- name: Swap compose files (current kept as compose.rolledback.yml)
+  ansible.builtin.copy:
+    src: "{{ openctem_root }}/{{ item.src }}"
+    dest: "{{ openctem_root }}/{{ item.dest }}"
+    remote_src: true
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - { src: compose.yml, dest: compose.rolledback.yml }
+    - { src: compose.prev.yml, dest: compose.yml }
+
+- name: Start the previous release (without its migration job)
+  ansible.builtin.include_tasks: start_previous.yml
+
+- name: Verify
+  ansible.builtin.command: /usr/local/sbin/openctem-verify
+  register: openctem_rollback_verify
+  changed_when: false
+  retries: 12
+  delay: 10
+  until: openctem_rollback_verify.rc == 0
+
+- name: Record the deployed release
+  ansible.builtin.copy:
+    dest: "{{ openctem_state_dir }}/deployed-version"
+    content: "{{ openctem_rollback_release }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+  when: openctem_rollback_release | length > 0
+
+- name: Result
+  ansible.builtin.debug:
+    msg: "Rolled back to {{ openctem_rollback_release | default('the previous compose file', true) }}; verify passed."

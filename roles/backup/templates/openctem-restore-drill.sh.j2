@@ -1,0 +1,48 @@
+#!/bin/bash
+# shellcheck disable=SC2154 # count_sql and helpers come from restore-common.sh
+# {{ ansible_managed }}
+# Restore drill: restores a backup into a THROWAWAY Postgres (no network)
+# and checks it, without touching the running stack.
+#
+#   sudo openctem-restore-drill                         newest local-mode backup
+#   sudo openctem-restore-drill <backup dir> <identity> an age backup
+#
+# The identity (age private key) is the owner's: copy it here only for the
+# drill (e.g. scp to /root/drill.key, chmod 600) and delete it afterwards.
+set -euo pipefail
+umask 077
+# shellcheck source=/dev/null
+. /usr/local/lib/openctem/restore-common.sh
+src="${1:-$(newest)}"
+id="${2:-}"
+[ -n "$src" ] || die "no backup found in $DEST"
+w="$(mktemp -d /var/tmp/openctem-drill.XXXXXX)"
+name="openctem-restore-drill-$$"
+trap 'docker rm -f "$name" > /dev/null 2>&1 || true; rm -rf -- "$w"' EXIT
+
+log "staging $src"
+stage "$src" "$id" "$w"
+log "release of the backup: $(cat "$w/VERSION")"
+docker run -d --name "$name" --network none -e POSTGRES_PASSWORD=drill -e POSTGRES_DB=drill "$PG_IMAGE" > /dev/null
+for _ in $(seq 1 60); do docker exec "$name" pg_isready -U postgres -q 2> /dev/null && break; sleep 1; done
+sleep 2
+docker exec -i "$name" pg_restore -U postgres -d drill --no-owner --no-privileges --exit-on-error < "$w/openctem.dump"
+docker exec "$name" psql -U postgres -d drill -qtAX -c "$count_sql" > "$w/restored.txt"
+tables="$(wc -l < "$w/restored.txt")"
+[ "$tables" -gt 0 ] || die "the restored database has no tables"
+log "database OK: $tables tables restored"
+if dc exec -T postgres psql -U postgres -d openctem -qtAX -c "$count_sql" > "$w/live.txt" 2> /dev/null; then
+	if cmp -s "$w/live.txt" "$w/restored.txt"; then
+		log "row counts equal the running database"
+	else
+		log "row counts that differ from the running database (changes since the backup):"
+		{ diff "$w/live.txt" "$w/restored.txt" || true; } | sed -n 's/^[<>] /  /p' | head -n 40
+	fi
+fi
+for f in "$w"/*.tar.gz; do
+	gzip -t "$f" || die "$(basename "$f") is corrupt"
+done
+tar -tzf "$w/secrets.tar.gz" > "$w/secrets.list"
+grep -qx app_encryption_key "$w/secrets.list" || die "secrets.tar.gz has no app_encryption_key"
+log "archives OK: $(cd "$w" && ls -- *.tar.gz | tr '\n' ' ')"
+log "drill passed${id:+ - now delete the identity file $id}"

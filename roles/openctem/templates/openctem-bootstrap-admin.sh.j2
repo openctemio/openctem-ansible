@@ -1,0 +1,26 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Creates the first platform administrator and its break-glass backup with
+# the release's bootstrap-admin tool. The one-time credentials are printed
+# ONCE, to this terminal only: run it on the server console (or an
+# interactive SSH session), never from Ansible or with output redirected.
+#
+#   sudo openctem-bootstrap-admin -email=admin@example.com -backup-email=breakglass@example.com
+#   sudo openctem-bootstrap-admin -email=... -backup-email=... -org-name="Acme" -org-owner-email=owner@example.com
+set -eu
+[ "$(id -u)" = 0 ] || { echo "run with sudo" >&2; exit 1; }
+if [ ! -t 0 ] || [ ! -t 1 ]; then
+	echo "refusing: needs an interactive terminal (the credentials are printed once, never to a log)" >&2
+	exit 1
+fi
+# Compose is always called with an explicit project and file list, never
+# from the working directory, and never for another stack's project.
+ROOT='{{ openctem_root }}'
+PROJECT='{{ openctem_project }}'
+case "$PROJECT" in
+''|{{ openctem_protected_projects | join('|') }}) echo "refusing compose project '$PROJECT'" >&2; exit 64 ;;
+esac
+compose_files=(-f "$ROOT/compose.yml")
+[ -f "$ROOT/compose.cloudflared.yml" ] && compose_files+=(-f "$ROOT/compose.cloudflared.yml")
+dc() { docker compose -p "$PROJECT" --project-directory "$ROOT" "${compose_files[@]}" "$@"; }
+dc exec api /app/bootstrap-admin "$@"

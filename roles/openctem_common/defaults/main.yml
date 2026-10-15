@@ -1,0 +1,22 @@
+---
+# Shared by the openctem, cloudflared, backup and monitoring roles.
+# Site values (openctem_app_host, openctem_version) come from your inventory.
+openctem_root: /opt/openctem  # noqa: var-naming[no-role-prefix]
+openctem_project: openctem  # noqa: var-naming[no-role-prefix]
+openctem_secrets_dir: "{{ openctem_root }}/secrets"  # noqa: var-naming[no-role-prefix]
+openctem_state_dir: "{{ openctem_root }}/state"  # noqa: var-naming[no-role-prefix]
+# How traffic reaches the gateway:
+#   cloudflared  Cloudflare Tunnel (roles/cloudflared), no host port at all
+#   loopback     the gateway publishes 127.0.0.1:openctem_loopback_port for a
+#                TLS reverse proxy you run on this host (optional alternative)
+openctem_ingress: cloudflared  # noqa: var-naming[no-role-prefix]
+openctem_loopback_port: 8080  # noqa: var-naming[no-role-prefix]
+# Fixed internal network for the ingress hop (cloudflared .10, gateway .11).
+openctem_net_tunnel: 172.30.81  # noqa: var-naming[no-role-prefix]
+# Compose project names this kit refuses to touch (other stacks that may
+# share a Docker host). Every compose call names its project and files
+# explicitly; none relies on the working directory.
+openctem_protected_projects: [openctemio, openctem-sensor, openctemio-obs]  # noqa: var-naming[no-role-prefix]
+openctem_compose: >-  # noqa: var-naming[no-role-prefix]
+  docker compose -p {{ openctem_project }} --project-directory {{ openctem_root }}
+  -f {{ openctem_root }}/compose.yml{{ (' -f ' ~ openctem_root ~ '/compose.cloudflared.yml') if openctem_ingress == 'cloudflared' else '' }}

@@ -1,0 +1,24 @@
+# Installed by: ansible-galaxy collection install -r requirements.yml -p ./collections
+collections/
+# Site data stays OUTSIDE this repository (see README). Only the example
+# inventory is committed.
+inventories/*
+!inventories/example/
+inventories/example/group_vars/all.yml
+inventories/example/group_vars/vault.yml
+# Never commit secrets: tunnel tokens, generated credentials, vault files, age identities.
+secrets/
+*.secret
+*.token
+vault*.yml
+*vault*.yml
+.vault_pass*
+*.age
+age-identity*.txt
+*identity*.txt
+# Ansible / tooling leftovers
+*.retry
+.ansible/
+.venv/
+reports/
+.DS_Store

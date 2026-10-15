@@ -1,0 +1,44 @@
+---
+- name: Read existing daemon.json
+  ansible.builtin.slurp:
+    src: /etc/docker/daemon.json
+  register: docker_daemon_existing
+  failed_when: false
+
+- name: Decode existing config
+  ansible.builtin.set_fact:
+    docker_daemon_current: "{{ (docker_daemon_existing.content | b64decode | from_json) if (docker_daemon_existing.content is defined) else {} }}"
+
+- name: Refuse to replace a different log driver
+  ansible.builtin.assert:
+    that: docker_daemon_current.get('log-driver', 'json-file') == 'json-file'
+    fail_msg: 'Existing log driver is not json-file; not overriding it automatically.'
+
+# Docker must keep managing its firewall chains: iptables=false breaks
+# container networking and the tunnel's egress (docs/FIREWALL.md).
+- name: Refuse a config that disables Docker's firewall management
+  ansible.builtin.assert:
+    that: docker_daemon_current.get('iptables', true) | bool
+    fail_msg: 'daemon.json sets iptables=false; review docs/FIREWALL.md first.'
+
+- name: Write daemon.json (with backup)
+  ansible.builtin.copy:
+    dest: /etc/docker/daemon.json
+    content: "{{ docker_daemon_current | combine(docker_daemon_settings, recursive=True) | to_nice_json }}\n"
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+    validate: dockerd --validate --config-file %s
+  register: docker_daemon_config
+
+- name: Restart Docker (only when asked)
+  ansible.builtin.systemd_service:
+    name: docker
+    state: restarted
+  when: docker_daemon_config.changed and (docker_daemon_restart | bool)
+
+- name: Warn if a restart is pending
+  ansible.builtin.debug:
+    msg: 'daemon.json changed; rerun with -e docker_daemon_restart=true in a maintenance window to apply it.'
+  when: docker_daemon_config.changed and not (docker_daemon_restart | bool)

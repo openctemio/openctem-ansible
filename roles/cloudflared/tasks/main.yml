@@ -1,0 +1,66 @@
+---
+- name: Secrets directory (metadata)
+  ansible.builtin.stat:
+    path: "{{ openctem_secrets_dir }}"
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: cloudflared_secrets_dir
+
+# Metadata only: no checksum, no mime type, the content is never read.
+- name: Tunnel token (metadata only)
+  ansible.builtin.stat:
+    path: "{{ cloudflared_token_file }}"
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: cloudflared_token
+  no_log: true
+
+- name: Token in place, owned by cloudflared's user, 0400, in a 0700 root directory
+  ansible.builtin.assert:
+    that:
+      - cloudflared_secrets_dir.stat.exists
+      - cloudflared_secrets_dir.stat.uid == 0
+      - cloudflared_secrets_dir.stat.mode == '0700'
+      - cloudflared_token.stat.exists
+      - cloudflared_token.stat.isreg
+      - cloudflared_token.stat.uid == cloudflared_token_uid
+      - cloudflared_token.stat.mode == '0400'
+      - cloudflared_token.stat.size > 0
+    fail_msg: >-
+      Place the Cloudflare Tunnel token at {{ cloudflared_token_file }} (owner {{ cloudflared_token_uid }}, mode 0400)
+      inside {{ openctem_secrets_dir }} (root, 0700) first (README, "Cloudflare Tunnel"). Ansible never writes it.
+    quiet: true
+  no_log: true
+
+- name: Deployment directory
+  ansible.builtin.file:
+    path: "{{ openctem_root }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Valid tunnel management mode
+  ansible.builtin.assert:
+    that: cloudflared_management in ['remote', 'local']
+    fail_msg: "cloudflared_management must be remote or local, not {{ cloudflared_management }}"
+    quiet: true
+
+- name: Ingress rules for a locally managed tunnel
+  ansible.builtin.template:
+    src: cloudflared.yml.j2
+    dest: "{{ openctem_root }}/cloudflared.yml"
+    owner: root
+    group: root
+    mode: '0644'
+  when: cloudflared_management == 'local'
+
+- name: Compose fragment for the connector
+  ansible.builtin.template:
+    src: compose.cloudflared.yml.j2
+    dest: "{{ openctem_root }}/compose.cloudflared.yml"
+    owner: root
+    group: root
+    mode: '0644'
