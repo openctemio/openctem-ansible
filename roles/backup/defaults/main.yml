@@ -1,0 +1,12 @@
+---
+# Deployment paths (openctem_root, ...): roles/openctem_common.
+backup_dir: /var/backups/openctem
+backup_state_dir: /var/lib/openctem-backup
+# 03:15 UTC daily, up to 15 min random delay; a missed run starts at boot.
+backup_on_calendar: '*-*-* 03:15:00'
+# Empty: local mode (plaintext, root-only, this host only; off-host copy refused).
+# age1...: every file encrypted to this PUBLIC key on the host; off-host allowed.
+backup_age_recipient: ''
+# Off-host copy, run after each encrypted backup with the new directory as $1.
+backup_offsite_command: ''
+backup_keep_days: 14

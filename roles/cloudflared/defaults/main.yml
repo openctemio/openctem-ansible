@@ -1,0 +1,18 @@
+---
+# Cloudflare Tunnel connector for the OpenCTEM gateway. The tunnel is
+# remotely managed (token): its public hostname route is set in the
+# Cloudflare dashboard (docs/CLOUDFLARE-ACCESS.md). Image digest: versions.yml.
+#
+# The token file is placed on the host by you (never by Ansible, never in
+# git): owner uid 65532 (cloudflared's user), mode 0400, in the 0700 root
+# secrets directory. This role checks its metadata only and mounts it.
+cloudflared_token_file: "{{ openctem_secrets_dir }}/cloudflared_tunnel_token"
+cloudflared_token_uid: 65532
+cloudflared_mem: 256m
+# Outbound-only network for the connector (Cloudflare edge, 7844 udp/tcp).
+cloudflared_net_egress: 172.30.83
+# remote: the public hostname route is set in the Cloudflare dashboard.
+# local:  a locally managed tunnel; the dashboard cannot set routes, so the
+#         role writes the ingress rules to {{ openctem_root }}/cloudflared.yml
+#         (app host -> http://gateway:80, everything else 404).
+cloudflared_management: remote

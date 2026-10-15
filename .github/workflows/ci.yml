@@ -1,0 +1,124 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  ANSIBLE_CORE: "ansible-core>=2.18,<2.19"
+  ANSIBLE_LINT: "ansible-lint==26.10.1"
+  YAMLLINT: "yamllint==1.38.0"
+  GITLEAKS_VERSION: "8.30.1"
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+
+jobs:
+  lint:
+    name: Lint (yamllint, ansible-lint production, syntax, shellcheck)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - name: Tools
+        run: pip install "$ANSIBLE_CORE" "$ANSIBLE_LINT" "$YAMLLINT"
+      - name: Collections (exact pins)
+        run: ansible-galaxy collection install -r requirements.yml -p ./collections
+      - name: yamllint
+        run: yamllint .
+      - name: ansible-lint (production profile)
+        run: ansible-lint
+      - name: Syntax check, every playbook
+        run: |
+          for p in site.yml playbooks/*.yml tests/render.yml; do
+            ansible-playbook -i inventories/example/hosts.ini --syntax-check "$p"
+          done
+      - name: Render the templates
+        run: ansible-playbook tests/render.yml -e render_dir="$RUNNER_TEMP/render"
+      - name: shellcheck (rendered scripts and test scripts)
+        run: |
+          shellcheck -S warning -s bash "$RUNNER_TEMP"/render/scripts/* tests/*.sh scripts/*.sh
+      - name: docker compose config (rendered, both ingress modes)
+        run: |
+          set -e
+          r="$RUNNER_TEMP/render"
+          mkdir -p "$r/secrets"
+          for f in api.env migrate.env db-roles.env redis.env; do echo "X=dummy" > "$r/secrets/$f"; done
+          ansible-playbook tests/render.yml -e render_dir="$r" -e openctem_root="$r" -e openctem_project=ci
+          docker compose -p ci -f "$r/compose.yml" -f "$r/compose.cloudflared.yml" config --quiet
+          # locally managed tunnel: the route file is mounted and the ingress is valid
+          ansible-playbook tests/render.yml -e render_dir="$r" -e openctem_root="$r" -e openctem_project=ci -e cloudflared_management=local
+          docker compose -p ci -f "$r/compose.yml" -f "$r/compose.cloudflared.yml" config --quiet
+          grep -q -- '--config' "$r/compose.cloudflared.yml"
+          grep -q 'service: http://gateway:80' "$r/cloudflared.yml"
+          tail -n 1 "$r/cloudflared.yml" | grep -q 'service: http_status:404'
+          ansible-playbook tests/render.yml -e render_dir="$r" -e openctem_root="$r" -e openctem_project=ci -e openctem_ingress=loopback
+          docker compose -p ci -f "$r/compose.yml" config --quiet
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks (checksum-verified binary)
+        run: |
+          set -e
+          curl -sSfLo gl.tgz "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          echo "${GITLEAKS_SHA256}  gl.tgz" | sha256sum -c -
+          tar -xzf gl.tgz gitleaks
+          ./gitleaks git --redact --no-banner --exit-code 1 .
+      - name: No site data committed
+        run: |
+          set -e
+          # Real inventories, tokens, identities and private addresses stay out of git.
+          ! git ls-files | grep -E '(^|/)(hosts|all)\.(ini|yml)$' | grep -v '^inventories/example/hosts.ini$'
+          ! git grep -nE 'AGE-SECRET-KEY-|-----BEGIN [A-Z ]*PRIVATE KEY-----' -- . ':!.github/workflows/ci.yml'
+          ! git grep -nE '\b(10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)[0-9]+\.[0-9]+\b' -- '*.ini' '*.example'
+
+  smoke:
+    name: Stack smoke test (isolated Docker-in-Docker)
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install "$ANSIBLE_CORE"
+      - run: ansible-galaxy collection install -r requirements.yml -p ./collections
+      - name: Smoke test
+        run: tests/smoke.sh
+
+  role-e2e:
+    name: Roles end to end on Ubuntu 26.04 (isolated Docker-in-Docker)
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install "$ANSIBLE_CORE"
+      - run: ansible-galaxy collection install -r requirements.yml -p ./collections
+      - name: Deploy, idempotence, rollback
+        run: tests/role-e2e.sh

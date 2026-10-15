@@ -1,0 +1,21 @@
+---
+# SSH hardening. Stage 1 (default) keeps password login; -e ssh_stage=2 turns it off after proving a key-only login from this controller. fail2ban for sshd.
+# Opt-in: -e apply_ssh=true (or set it in your inventory). Without it this play
+# does nothing. Rehearse with --check --diff first.
+- name: SSH hardening
+  hosts: openctem
+  become: true
+  gather_facts: true
+  tags: [ssh]
+  pre_tasks:
+    - name: Skip unless apply_ssh is true
+      ansible.builtin.meta: end_play
+      when: not (apply_ssh | default(false) | bool)
+    - name: Check the target OS
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Ubuntu'
+          - ansible_facts.distribution_version is version(openctem_min_ubuntu | default('24.04'), '>=')
+        fail_msg: 'Unsupported OS {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.'
+  roles:
+    - role: ssh

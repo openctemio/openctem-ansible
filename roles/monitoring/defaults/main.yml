@@ -1,0 +1,12 @@
+---
+# Paths: roles/openctem_common; backup state as the backup role writes it.
+monitoring_backup_state_dir: "{{ backup_state_dir | default('/var/lib/openctem-backup') }}"
+monitoring_interval: 5min
+monitoring_disk_warn_percent: 85
+monitoring_backup_max_age_hours: 30
+monitoring_cert_warn_days: 14
+# External probes through Cloudflare (tunnel path, edge certificate, Access).
+monitoring_external_probes: true
+monitoring_webhook_url: ''
+# Repeat an unchanged alert at most this often (seconds).
+monitoring_repeat_seconds: 3600

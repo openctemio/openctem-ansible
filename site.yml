@@ -1,0 +1,23 @@
+---
+# Every stage in runbook order. Each stage runs only when its apply_* flag is
+# true (inventory or -e), so the same command can rehearse (--check --diff)
+# or apply exactly the stages you enable. Stages also have tags:
+#   ansible-playbook -i <inventory> site.yml --tags openctem -e apply_openctem=true
+- name: Preflight (read-only)
+  ansible.builtin.import_playbook: playbooks/00-preflight.yml
+- name: OS baseline
+  ansible.builtin.import_playbook: playbooks/10-os.yml
+- name: SSH
+  ansible.builtin.import_playbook: playbooks/20-ssh.yml
+- name: Docker
+  ansible.builtin.import_playbook: playbooks/30-docker.yml
+- name: Firewall
+  ansible.builtin.import_playbook: playbooks/35-firewall.yml
+- name: OpenCTEM and the tunnel connector
+  ansible.builtin.import_playbook: playbooks/50-openctem.yml
+- name: Backups
+  ansible.builtin.import_playbook: playbooks/55-backup.yml
+- name: Monitoring
+  ansible.builtin.import_playbook: playbooks/60-monitoring.yml
+- name: Audit (read-only)
+  ansible.builtin.import_playbook: playbooks/80-audit.yml

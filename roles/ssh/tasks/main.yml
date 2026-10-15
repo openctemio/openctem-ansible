@@ -1,0 +1,88 @@
+---
+- name: Stage is 1 or 2
+  ansible.builtin.assert:
+    that: ssh_stage | int in [1, 2]
+    fail_msg: 'ssh_stage must be 1 (passwords kept) or 2 (keys only).'
+
+- name: Effective SSH settings before
+  ansible.builtin.command: sshd -T
+  changed_when: false
+  check_mode: false
+  register: ssh_before
+
+- name: Show the settings that change
+  ansible.builtin.debug:
+    msg: "{{ ssh_before.stdout_lines | select('match', '^(port|passwordauthentication|pubkeyauthentication|permitrootlogin|authenticationmethods) ') | list }}"
+
+# Stage 2 guard: a key-only login must work from this controller before
+# password login is turned off.
+- name: Key-only SSH login from the controller
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command:
+    argv: [ssh, -o, BatchMode=yes, -o, PasswordAuthentication=no, -o, KbdInteractiveAuthentication=no,
+           -o, PreferredAuthentications=publickey, -o, StrictHostKeyChecking=yes, -o, ConnectTimeout=10,
+           -p, "{{ ansible_port | default(22) | string }}", "{{ ansible_user }}@{{ ansible_host }}", 'true']
+  changed_when: false
+  check_mode: false
+  register: ssh_key_probe
+  failed_when: false
+  when: ssh_stage | int == 2
+
+- name: Refuse to disable passwords without a working key login
+  ansible.builtin.assert:
+    that: ssh_key_probe.rc == 0
+    fail_msg: >-
+      Key-only login to {{ ansible_user }}@{{ ansible_host }} failed (rc={{ ssh_key_probe.rc }}); password login left on.
+      Install your public key in ~{{ ansible_user }}/.ssh/authorized_keys first.
+  when: ssh_stage | int == 2
+
+- name: DevSec SSH hardening
+  ansible.builtin.include_role:
+    name: devsec.hardening.ssh_hardening
+  vars:
+    ssh_permit_root_login: "{{ ssh_devsec_vars.ssh_permit_root_login }}"
+    ssh_allow_tcp_forwarding: "{{ ssh_devsec_vars.ssh_allow_tcp_forwarding }}"
+    ssh_x11_forwarding: "{{ ssh_devsec_vars.ssh_x11_forwarding }}"
+    ssh_max_auth_retries: "{{ ssh_devsec_vars.ssh_max_auth_retries }}"
+    # The role's default AuthenticationMethods is publickey only; stage 1
+    # keeps password login as the fallback.
+    ssh_server_password_login: "{{ ssh_stage | int == 1 }}"
+    sshd_authenticationmethods: "{{ 'publickey password' if ssh_stage | int == 1 else 'publickey' }}"
+
+- name: Apply the SSH handlers now
+  ansible.builtin.meta: flush_handlers
+
+- name: Validate SSH syntax
+  ansible.builtin.command: sshd -t
+  changed_when: false
+  check_mode: false
+
+- name: Effective SSH settings after
+  ansible.builtin.command: sshd -T
+  changed_when: false
+  check_mode: false
+  register: ssh_after
+
+- name: Stage 2 took effect
+  ansible.builtin.assert:
+    that:
+      - "'passwordauthentication no' in ssh_after.stdout_lines"
+      - "'authenticationmethods publickey' in ssh_after.stdout_lines"
+  when: ssh_stage | int == 2 and not ansible_check_mode
+
+- name: Key-only login still works after the reload
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command:
+    argv: [ssh, -o, BatchMode=yes, -o, PasswordAuthentication=no, -o, PreferredAuthentications=publickey,
+           -o, StrictHostKeyChecking=yes, -o, ConnectTimeout=10,
+           -p, "{{ ansible_port | default(22) | string }}", "{{ ansible_user }}@{{ ansible_host }}", 'true']
+  changed_when: false
+  check_mode: false
+  when: ssh_stage | int == 2 and not ansible_check_mode
+
+- name: Fail2ban for sshd
+  ansible.builtin.import_tasks: fail2ban.yml
+  when: ssh_fail2ban | bool
+  tags: [fail2ban]

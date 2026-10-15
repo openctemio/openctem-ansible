@@ -1,0 +1,85 @@
+---
+# Deploys (or upgrades) the OpenCTEM platform. Order:
+#   checks -> files -> secrets (on the server) -> signatures -> pre-upgrade
+#   backup -> compose up -> verify; a failed upgrade restores the previous
+#   compose file and verifies again.
+
+- name: Checks
+  ansible.builtin.import_tasks: checks.yml
+
+- name: Directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ openctem_root }}", mode: '0755' }
+    - { path: "{{ openctem_secrets_dir }}", mode: '0700' }
+    - { path: "{{ openctem_state_dir }}", mode: '0700' }
+    - { path: "{{ openctem_root }}/releases", mode: '0755' }
+    - { path: "{{ openctem_release_root }}", mode: '0755' }
+    - { path: "{{ openctem_release_root }}/gateway", mode: '0755' }
+    - { path: "{{ openctem_release_root }}/gateway/modes", mode: '0755' }
+    - { path: "{{ openctem_release_root }}/gateway/sensors", mode: '0755' }
+    - { path: "{{ openctem_release_root }}/postgres", mode: '0755' }
+
+- name: Release files (gateway config, least-privilege SQL)
+  ansible.builtin.import_tasks: release_files.yml
+
+- name: Helper scripts
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "/usr/local/sbin/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0750'
+  loop:
+    - { src: openctem-secrets.sh.j2, dest: openctem-secrets }
+    - { src: openctem-verify.sh.j2, dest: openctem-verify }
+    - { src: openctem-bootstrap-admin.sh.j2, dest: openctem-bootstrap-admin }
+
+- name: Generate secrets on the server (values never leave it)
+  ansible.builtin.command: /usr/local/sbin/openctem-secrets
+  register: openctem_secrets_run
+  changed_when: "'CHANGED' in openctem_secrets_run.stdout"
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Secret files read by a container user (numeric owner, chown(2))
+  ansible.builtin.file:
+    path: "{{ openctem_secrets_dir }}/{{ item.name }}"
+    owner: "{{ item.uid }}"
+    group: "{{ item.gid }}"
+    mode: '0400'
+  loop:
+    - { name: redis.conf, uid: '999', gid: '1000' }
+    - { name: db_superuser_password, uid: '999', gid: '999' }
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Verify image signatures
+  ansible.builtin.import_tasks: signatures.yml
+  when: openctem_verify_signatures | bool
+
+- name: Deployed version before this run
+  ansible.builtin.slurp:
+    src: "{{ openctem_state_dir }}/deployed-version"
+  register: openctem_prev_version_raw
+  failed_when: false
+
+- name: Upgrade facts
+  ansible.builtin.set_fact:
+    openctem_prev_version: "{{ (openctem_prev_version_raw.content | b64decode | trim) if openctem_prev_version_raw.content is defined else '' }}"
+
+- name: Upgrade facts (derived)
+  ansible.builtin.set_fact:
+    openctem_is_upgrade: "{{ openctem_prev_version != '' and openctem_prev_version != openctem_version }}"
+
+- name: Backup before an upgrade
+  ansible.builtin.import_tasks: pre_upgrade_backup.yml
+  when: openctem_is_upgrade | bool and openctem_backup_before_upgrade | bool
+
+- name: Deploy
+  ansible.builtin.import_tasks: deploy.yml

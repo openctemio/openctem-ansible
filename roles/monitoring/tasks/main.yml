@@ -1,0 +1,82 @@
+---
+- name: Tools
+  ansible.builtin.apt:
+    name: [curl, openssl]
+    state: present
+
+- name: Config directory
+  ansible.builtin.file:
+    path: /etc/openctem
+    state: directory
+    owner: root
+    group: root
+    mode: '0750'
+
+- name: Monitor script
+  ansible.builtin.template:
+    src: openctem-monitor.sh.j2
+    dest: /usr/local/sbin/openctem-monitor
+    owner: root
+    group: root
+    mode: '0750'
+
+# The webhook URL is a credential: root-only file, never logged.
+- name: Webhook settings
+  ansible.builtin.copy:
+    dest: /etc/openctem/monitor.env
+    content: "WEBHOOK_URL='{{ monitoring_webhook_url }}'\n"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  when: monitoring_webhook_url | length > 0
+
+- name: No webhook configured
+  ansible.builtin.file:
+    path: /etc/openctem/monitor.env
+    state: absent
+  when: monitoring_webhook_url | length == 0
+
+- name: Systemd service and timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - name: openctem-monitor.service
+      content: |
+        # Managed by Ansible (roles/monitoring).
+        [Unit]
+        Description=OpenCTEM host monitor
+        After=docker.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/openctem-monitor
+        NoNewPrivileges=true
+        PrivateTmp=true
+        ProtectHome=true
+        TimeoutStartSec=5min
+    - name: openctem-monitor.timer
+      content: |
+        # Managed by Ansible (roles/monitoring).
+        [Unit]
+        Description=Run the OpenCTEM host monitor
+
+        [Timer]
+        OnBootSec=5min
+        OnUnitActiveSec={{ monitoring_interval }}
+
+        [Install]
+        WantedBy=timers.target
+  register: monitoring_units
+
+- name: Enable the timer
+  ansible.builtin.systemd_service:
+    name: openctem-monitor.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ monitoring_units.changed }}"
+  when: not ansible_check_mode

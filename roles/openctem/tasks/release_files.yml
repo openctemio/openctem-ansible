@@ -1,0 +1,50 @@
+---
+# The release's own gateway config and SQL, vendored in this kit and checked
+# against SHA256SUMS on the controller before they are copied.
+- name: Vendored files of this release
+  ansible.builtin.set_fact:
+    openctem_release_dir: "{{ role_path }}/files/release/{{ openctem_version }}"
+    openctem_release_sums: "{{ lookup('ansible.builtin.file', role_path ~ '/files/release/' ~ openctem_version ~ '/SHA256SUMS').splitlines() }}"
+
+- name: Hash the vendored files (controller)
+  delegate_to: localhost
+  become: false
+  ansible.builtin.stat:
+    path: "{{ openctem_release_dir }}/{{ item.split()[1] }}"
+    checksum_algorithm: sha256
+  loop: "{{ openctem_release_sums }}"
+  register: openctem_release_hashes
+
+- name: Vendored files match SHA256SUMS
+  ansible.builtin.assert:
+    that: item.stat.checksum == item.item.split()[0]
+    fail_msg: '{{ item.item.split()[1] }} differs from SHA256SUMS: refusing to deploy it.'
+    quiet: true
+  loop: "{{ openctem_release_hashes.results }}"
+  loop_control:
+    label: "{{ item.item.split()[1] }}"
+
+- name: Copy the release files
+  ansible.builtin.copy:
+    src: "release/{{ openctem_version }}/{{ item }}"
+    dest: "{{ openctem_release_root }}/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - gateway/Caddyfile
+    - gateway/planes.caddy
+    - gateway/entrypoint.sh
+    - gateway/modes/http.global
+    - gateway/sensors/off.wrappers
+    - postgres/least-privilege-roles.sql
+  register: openctem_release_copy
+
+- name: Gateway site (one origin, plain HTTP on the tunnel network)
+  ansible.builtin.template:
+    src: http.site.j2
+    dest: "{{ openctem_release_root }}/gateway/modes/http.site"
+    owner: root
+    group: root
+    mode: '0644'
+  register: openctem_site_tpl

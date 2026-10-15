@@ -1,0 +1,55 @@
+---
+# Renders every template of the roles on the CONTROLLER for review, lint and
+# `docker compose config`. Touches no host.
+#   ansible-playbook tests/render.yml -e render_dir=/tmp/openctem-render
+# Override any default with -e (e.g. -e openctem_job_signer=true).
+- name: Render the role templates locally
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/openctem/defaults/main.yml
+    - ../roles/cloudflared/defaults/main.yml
+    - ../roles/backup/defaults/main.yml
+    - ../roles/monitoring/defaults/main.yml
+    - ../versions.yml
+    - vars.yml
+  vars:
+    render_dir: "{{ playbook_dir }}/../reports/render"
+    roles_dir: "{{ playbook_dir }}/../roles"
+  tasks:
+    - name: Output directories
+      ansible.builtin.file:
+        path: "{{ render_dir }}/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop: ['', gateway/modes, scripts]
+
+    - name: Render
+      ansible.builtin.template:
+        src: "{{ roles_dir }}/{{ item.role }}/templates/{{ item.src }}"
+        dest: "{{ render_dir }}/{{ item.dest }}"
+        mode: '0644'
+      loop:
+        - { role: openctem, src: compose.yml.j2, dest: compose.yml }
+        - { role: cloudflared, src: compose.cloudflared.yml.j2, dest: compose.cloudflared.yml }
+        - { role: cloudflared, src: cloudflared.yml.j2, dest: cloudflared.yml }
+        - { role: openctem, src: http.site.j2, dest: gateway/modes/http.site }
+        - { role: openctem, src: openctem-secrets.sh.j2, dest: scripts/openctem-secrets }
+        - { role: openctem, src: openctem-verify.sh.j2, dest: scripts/openctem-verify }
+        - { role: openctem, src: openctem-bootstrap-admin.sh.j2, dest: scripts/openctem-bootstrap-admin }
+        - { role: backup, src: openctem-backup.sh.j2, dest: scripts/openctem-backup }
+        - { role: backup, src: openctem-restore-drill.sh.j2, dest: scripts/openctem-restore-drill }
+        - { role: backup, src: openctem-restore.sh.j2, dest: scripts/openctem-restore }
+        - { role: backup, src: openctem-restore-common.sh.j2, dest: scripts/restore-common.sh }
+        - { role: monitoring, src: openctem-monitor.sh.j2, dest: scripts/openctem-monitor }
+        - { role: os_baseline, src: openctem.rules.j2, dest: audit.rules }
+
+    - name: Project settings file
+      ansible.builtin.copy:
+        dest: "{{ render_dir }}/.env"
+        mode: '0644'
+        content: |
+          COMPOSE_PROJECT_NAME={{ openctem_project }}
+          COMPOSE_FILE={{ 'compose.yml:compose.cloudflared.yml' if openctem_ingress == 'cloudflared' else 'compose.yml' }}

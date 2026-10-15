@@ -1,0 +1,6 @@
+---
+# Inbound: SSH from these IPv4 CIDRs only; everything else denied. Set
+# admin_cidrs in your inventory. The role refuses to run when the
+# controller's own address is outside them (lockout guard).
+firewall_admin_cidrs: "{{ admin_cidrs | default([]) }}"
+firewall_ssh_port: 22

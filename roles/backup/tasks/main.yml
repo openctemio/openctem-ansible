@@ -1,0 +1,151 @@
+---
+- name: Backup mode
+  ansible.builtin.set_fact:
+    backup_mode: "{{ 'age' if (backup_age_recipient | default('') | length > 0) else 'local' }}"
+
+# Public key only. A private key (AGE-SECRET-KEY-...) never goes on this host.
+- name: The recipient is an age public key
+  ansible.builtin.assert:
+    that:
+      - backup_age_recipient is match('^age1[02-9ac-hj-np-z]{58}$')
+      - "'AGE-SECRET-KEY' not in backup_age_recipient | upper"
+    fail_msg: 'backup_age_recipient must be an age PUBLIC key (age1...), never an identity.'
+  when: backup_mode == 'age'
+
+- name: Off-host copy needs encryption
+  ansible.builtin.assert:
+    that: backup_mode == 'age'
+    fail_msg: 'backup_offsite_command is set but backups are not encrypted: set backup_age_recipient first.'
+  when: backup_offsite_command | length > 0
+
+- name: Install age
+  ansible.builtin.apt:
+    name: [age]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+  when: backup_mode == 'age'
+
+- name: Directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: /etc/openctem, mode: '0750' }
+    - { path: /usr/local/lib/openctem, mode: '0755' }
+    - { path: "{{ backup_dir }}", mode: '0700' }
+    - { path: "{{ backup_state_dir }}", mode: '0700' }
+
+- name: Recipient (public key)
+  ansible.builtin.copy:
+    dest: /etc/openctem/backup-recipients.txt
+    content: "{{ backup_age_recipient }}\n"
+    owner: root
+    group: root
+    mode: '0644'
+  when: backup_mode == 'age'
+
+- name: No recipient in local mode
+  ansible.builtin.file:
+    path: /etc/openctem/backup-recipients.txt
+    state: absent
+  when: backup_mode == 'local'
+
+- name: Off-host copy hook
+  ansible.builtin.copy:
+    dest: /etc/openctem/backup-offsite.sh
+    content: |
+      #!/bin/sh
+      # Managed by Ansible (roles/backup).
+      # $1 = the new encrypted backup directory.
+      set -eu
+      {{ backup_offsite_command }} "$1"
+    owner: root
+    group: root
+    mode: '0700'
+  when: backup_offsite_command | length > 0
+
+- name: No off-host hook when none is configured
+  ansible.builtin.file:
+    path: /etc/openctem/backup-offsite.sh
+    state: absent
+  when: backup_offsite_command | length == 0
+
+- name: Scripts
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: openctem-backup.sh.j2, dest: /usr/local/sbin/openctem-backup, mode: '0750' }
+    - { src: openctem-restore-drill.sh.j2, dest: /usr/local/sbin/openctem-restore-drill, mode: '0750' }
+    - { src: openctem-restore.sh.j2, dest: /usr/local/sbin/openctem-restore, mode: '0750' }
+    - { src: openctem-restore-common.sh.j2, dest: /usr/local/lib/openctem/restore-common.sh, mode: '0644' }
+
+- name: Systemd service and timer
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - name: openctem-backup.service
+      content: |
+        # Managed by Ansible (roles/backup).
+        [Unit]
+        Description=OpenCTEM backup (database, uploaded files, secrets)
+        Requires=docker.service
+        After=docker.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/openctem-backup
+        Nice=10
+        IOSchedulingClass=best-effort
+        IOSchedulingPriority=7
+        PrivateTmp=true
+        NoNewPrivileges=true
+        ProtectHome=true
+        TimeoutStartSec=2h
+    - name: openctem-backup.timer
+      content: |
+        # Managed by Ansible (roles/backup).
+        [Unit]
+        Description=Daily OpenCTEM backup
+
+        [Timer]
+        OnCalendar={{ backup_on_calendar }}
+        RandomizedDelaySec=15min
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+  register: backup_units
+
+- name: Enable the timer
+  ansible.builtin.systemd_service:
+    name: openctem-backup.timer
+    enabled: true
+    state: started
+    daemon_reload: "{{ backup_units.changed }}"
+  when: not ansible_check_mode
+
+- name: Run a backup now (-e backup_run_now=true)
+  ansible.builtin.systemd_service:
+    name: openctem-backup.service
+    state: started
+  when: backup_run_now | default(false) | bool and not ansible_check_mode
+
+- name: Summary
+  ansible.builtin.debug:
+    msg: >-
+      {{ 'Backups: ENCRYPTED to ' ~ backup_age_recipient[:12] ~ '... in ' ~ backup_dir
+         ~ ('; off-host copy ON' if backup_offsite_command | length > 0 else '; WARNING: NOT off-host (backup_offsite_command empty)')
+         if backup_mode == 'age' else
+         'WARNING: backups are LOCAL ONLY and NOT encrypted (' ~ backup_dir ~ ', root 0700): losing this host loses them. Set backup_age_recipient.' }}

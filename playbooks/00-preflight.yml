@@ -1,0 +1,115 @@
+---
+# Read-only. Changes nothing on the host: OS, sudo, sizing, tunnel token
+# metadata (never its content), Docker, listeners, firewall, time, sshd.
+- name: Preflight for the OpenCTEM host
+  hosts: openctem
+  gather_facts: true
+  become: false
+  tags: [preflight]
+  vars:
+    openctem_secrets_dir: "{{ openctem_root | default('/opt/openctem') }}/secrets"
+    openctem_tunnel_token_file: "{{ openctem_secrets_dir }}/cloudflared_tunnel_token"
+  tasks:
+    - name: Assert intended OS
+      ansible.builtin.assert:
+        that:
+          - ansible_facts.distribution == 'Ubuntu'
+          - ansible_facts.distribution_version is version(openctem_min_ubuntu | default('24.04'), '>=')
+        fail_msg: 'Unsupported OS {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}: stop and review the inventory.'
+
+    - name: Check sudo works
+      ansible.builtin.command: id -u
+      become: true
+      changed_when: false
+      check_mode: false
+      register: preflight_uid
+
+    - name: Assert root escalation works
+      ansible.builtin.assert:
+        that: preflight_uid.stdout == '0'
+
+    - name: Report sizing (the stack is sized for 4 vCPU / 7 GB; see roles/openctem/defaults)
+      ansible.builtin.debug:
+        msg: >-
+          vCPU={{ ansible_facts.processor_vcpus }}
+          RAM_MB={{ ansible_facts.memtotal_mb }}
+          root_free_GB={{ ((ansible_facts.mounts | selectattr('mount', 'equalto', '/') | first).size_available / 1073741824) | round(1) }}
+
+    - name: Warn when the host is smaller than the stack's memory budget
+      ansible.builtin.assert:
+        that: ansible_facts.memtotal_mb >= 6800
+        fail_msg: 'Less than ~7 GB RAM: lower the openctem_mem_* limits before deploying.'
+      ignore_errors: true  # noqa: ignore-errors -- informational in preflight
+
+    # The token file is placed by the owner. Only its metadata is read:
+    # no checksum, no mime type, never the content.
+    - name: Stat the tunnel token file (metadata only)
+      ansible.builtin.stat:
+        path: "{{ openctem_tunnel_token_file }}"
+        get_checksum: false
+        get_mime: false
+        get_attributes: false
+      become: true
+      register: preflight_token
+      no_log: true
+
+    - name: Stat the secrets directory
+      ansible.builtin.stat:
+        path: "{{ openctem_secrets_dir }}"
+        get_checksum: false
+        get_mime: false
+        get_attributes: false
+      become: true
+      register: preflight_secrets_dir
+
+    - name: Report the tunnel token state (owner 65532, mode 0400, dir 0700 root expected)
+      ansible.builtin.debug:
+        msg: >-
+          secrets dir: {{ 'present mode=' ~ preflight_secrets_dir.stat.mode ~ ' uid=' ~ preflight_secrets_dir.stat.uid
+          if preflight_secrets_dir.stat.exists else 'absent' }};
+          token: {{ 'present mode=' ~ preflight_token.stat.mode ~ ' uid=' ~ preflight_token.stat.uid
+          ~ ' gid=' ~ preflight_token.stat.gid ~ ' size>0=' ~ (preflight_token.stat.size > 0)
+          if preflight_token.stat.exists else 'absent (the owner places it before playbooks/50-openctem.yml)' }}
+
+    - name: Assert token owner and mode when the token is present
+      ansible.builtin.assert:
+        that:
+          - preflight_token.stat.isreg
+          - preflight_token.stat.uid == 65532
+          - preflight_token.stat.mode == '0400'
+          - preflight_token.stat.size > 0
+          - preflight_secrets_dir.stat.uid == 0
+          - preflight_secrets_dir.stat.mode == '0700'
+        fail_msg: 'Tunnel token must be a non-empty regular file, owner uid 65532, mode 0400, in a 0700 root directory.'
+        quiet: true
+      when: preflight_token.stat.exists
+
+    - name: Collect Docker version (absent before playbooks/30-docker-install.yml)
+      ansible.builtin.command: docker version --format '{{ "{{.Server.Version}}" }}'
+      become: true
+      changed_when: false
+      check_mode: false
+      register: preflight_docker
+      failed_when: false
+
+    - name: Inspect listeners, Docker ports and firewall without modifying the host
+      ansible.builtin.shell: |
+        set -o pipefail
+        echo '[SOCKETS]'; ss -lntup || true
+        echo '[DOCKER]'; docker ps --format '{{ "{{.Names}}" }} {{ "{{.Ports}}" }}' 2>/dev/null || echo 'docker not installed'
+        echo '[FORWARD]'; sysctl net.ipv4.ip_forward || true
+        echo '[UFW]'; ufw status verbose || true
+        echo '[TIME]'; timedatectl show -p NTPSynchronized -p Timezone || true
+        echo '[SSHD]'; sshd -T 2>/dev/null | grep -Ei '^(port|passwordauthentication|pubkeyauthentication|permitrootlogin|authenticationmethods) ' || true
+      args:
+        executable: /bin/bash
+      become: true
+      changed_when: false
+      check_mode: false
+      register: preflight_discovery
+
+    - name: Print discovery
+      ansible.builtin.debug:
+        msg:
+          docker: "{{ preflight_docker.stdout | default('') or 'not installed' }}"
+          report: "{{ preflight_discovery.stdout_lines }}"

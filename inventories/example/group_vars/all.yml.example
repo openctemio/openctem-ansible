@@ -1,0 +1,54 @@
+---
+# Site settings for one OpenCTEM host. Copy to group_vars/all.yml in YOUR
+# inventory directory (outside this repository). Never put a secret here:
+# secrets are generated on the host, the tunnel token is placed there by you,
+# and a webhook URL goes into an ansible-vault file (vault.yml below).
+
+# --- Public name -------------------------------------------------------------------
+# The ONE origin of the console, the API, sensors and CI. Cloudflare Access
+# guards it; the exact machine paths get Access Bypass apps
+# (docs/CLOUDFLARE-ACCESS.md) and authenticate in the API with their own keys.
+openctem_app_host: ctem.example.com
+
+# --- Release (must be a key of openctem_releases in versions.yml) ------------------
+openctem_version: v0.9.7
+
+# --- Ingress -----------------------------------------------------------------------
+# cloudflared (default): Cloudflare Tunnel, no inbound port at all.
+# loopback: gateway on 127.0.0.1:openctem_loopback_port for your own TLS proxy.
+openctem_ingress: cloudflared
+# remote (default): the tunnel's route is set in the Cloudflare dashboard.
+# local: a locally managed tunnel (created with `cloudflared tunnel create`);
+# the role writes the route to /opt/openctem/cloudflared.yml.
+# cloudflared_management: remote
+
+# --- Administrator network: SSH is allowed only from here ---------------------------
+admin_cidrs:
+  - 192.0.2.0/24
+
+# --- Backups -----------------------------------------------------------------------
+# Your age PUBLIC key (age-keygen -y key.txt). Empty = local mode: plaintext,
+# root-only, on the host only, off-host copy refused.
+backup_age_recipient: ''
+# Off-host copy of each encrypted backup ($1 = its directory), e.g.
+#   rclone copy --config /root/.config/rclone/rclone.conf "$1" remote:openctem/$(basename "$1")
+backup_offsite_command: ''
+backup_keep_days: 14
+
+# --- Monitoring --------------------------------------------------------------------
+# A webhook URL is a credential: put it in group_vars/vault.yml (ansible-vault
+# encrypt) as vault_monitoring_webhook_url.
+monitoring_webhook_url: "{{ vault_monitoring_webhook_url | default('') }}"
+
+# --- Optional ----------------------------------------------------------------------
+# openctem_job_signer: true      # signed sensor jobs (key created on the host)
+# Sizing for 4 vCPU / 7-8 GB is the default; see roles/openctem/defaults/main.yml.
+
+# --- Stages to apply (or pass -e apply_x=true per run) ------------------------------
+apply_os: false
+apply_ssh: false
+apply_docker: false
+apply_firewall: false
+apply_openctem: false
+apply_backup: false
+apply_monitoring: false

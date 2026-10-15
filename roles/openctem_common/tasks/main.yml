@@ -1,0 +1,20 @@
+---
+- name: Pinned versions and digests
+  ansible.builtin.include_vars:
+    file: "{{ role_path }}/../../versions.yml"
+  tags: [always]
+
+- name: Required site values
+  ansible.builtin.assert:
+    that:
+      - openctem_app_host is defined
+      - openctem_app_host is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$')
+      - openctem_version is defined
+      - openctem_ingress in ['cloudflared', 'loopback']
+      - openctem_project is match('^[a-z0-9][a-z0-9_-]*$')
+      - openctem_project not in openctem_protected_projects
+    fail_msg: >-
+      Set openctem_app_host (a DNS name) and openctem_version in your inventory
+      (inventories/example/group_vars/all.yml.example); openctem_ingress is cloudflared or loopback;
+      openctem_project must be a plain name and not one of {{ openctem_protected_projects }}.
+  tags: [always]

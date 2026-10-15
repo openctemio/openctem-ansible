@@ -1,0 +1,15 @@
+---
+- name: Restart chrony
+  ansible.builtin.systemd_service:
+    name: chrony
+    state: restarted
+
+- name: Restart journald
+  ansible.builtin.systemd_service:
+    name: systemd-journald
+    state: restarted
+
+# auditd refuses systemctl restart (RefuseManualStop); augenrules loads rules.
+- name: Load audit rules
+  ansible.builtin.command: augenrules --load
+  changed_when: true

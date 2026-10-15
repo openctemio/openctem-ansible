@@ -1,0 +1,122 @@
+---
+- name: DevSec OS hardening
+  ansible.builtin.include_role:
+    name: devsec.hardening.os_hardening
+  vars:
+    os_pam_enabled: "{{ os_baseline_devsec_vars.os_pam_enabled }}"
+    os_user_pw_ageing: "{{ os_baseline_devsec_vars.os_user_pw_ageing }}"
+    os_chmod_home_folders: "{{ os_baseline_devsec_vars.os_chmod_home_folders }}"
+    os_filesystem_whitelist: "{{ os_baseline_devsec_vars.os_filesystem_whitelist }}"
+    os_ignore_users: "{{ [ansible_user | default('ubuntu')] }}"
+    sysctl_overwrite: "{{ os_baseline_devsec_vars.sysctl_overwrite }}"
+  when: os_baseline_devsec_os | bool
+  tags: [os_devsec]
+
+- name: Unattended security upgrades
+  tags: [os_updates]
+  when: os_baseline_unattended_upgrades | bool
+  block:
+    - name: Install unattended-upgrades
+      ansible.builtin.apt:
+        name: [unattended-upgrades]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Enable the periodic apt runs
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/20auto-upgrades
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          // Managed by Ansible (roles/os_baseline).
+          APT::Periodic::Update-Package-Lists "1";
+          APT::Periodic::Unattended-Upgrade "1";
+          APT::Periodic::AutocleanInterval "7";
+
+    # Security pocket only. Docker packages come from Docker's repository and
+    # are held (playbooks/30-docker-install.yml), so they are never upgraded here.
+    - name: Restrict unattended upgrades to security updates
+      ansible.builtin.copy:
+        dest: /etc/apt/apt.conf.d/52openctem-unattended
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          // Managed by Ansible (roles/os_baseline). Overrides 50unattended-upgrades.
+          Unattended-Upgrade::Allowed-Origins {
+                  "${distro_id}:${distro_codename}-security";
+                  "${distro_id}ESMApps:${distro_codename}-apps-security";
+                  "${distro_id}ESM:${distro_codename}-infra-security";
+          };
+          Unattended-Upgrade::Automatic-Reboot "{{ 'true' if os_baseline_unattended_reboot | bool else 'false' }}";
+          Unattended-Upgrade::Automatic-Reboot-Time "{{ os_baseline_unattended_reboot_time }}";
+          Unattended-Upgrade::Remove-Unused-Dependencies "true";
+
+- name: Time sync with chrony
+  tags: [os_time]
+  when: os_baseline_chrony | bool
+  block:
+    - name: Install chrony
+      ansible.builtin.apt:
+        name: [chrony]
+        state: present
+
+    - name: Enable chrony
+      ansible.builtin.systemd_service:
+        name: chrony
+        enabled: true
+        state: started
+
+- name: Audit daemon
+  tags: [os_audit]
+  when: os_baseline_auditd | bool
+  block:
+    - name: Install auditd
+      ansible.builtin.apt:
+        name: [auditd]
+        state: present
+
+    - name: Audit rules
+      ansible.builtin.template:
+        src: openctem.rules.j2
+        dest: /etc/audit/rules.d/60-openctem.rules
+        owner: root
+        group: root
+        mode: '0640'
+      notify: Load audit rules
+
+    - name: Enable auditd
+      ansible.builtin.systemd_service:
+        name: auditd
+        enabled: true
+        state: started
+
+- name: Persistent, size-capped journal
+  tags: [os_journal]
+  when: os_baseline_journald | bool
+  block:
+    - name: Journald drop-in directory
+      ansible.builtin.file:
+        path: /etc/systemd/journald.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Journald persistence and caps
+      ansible.builtin.copy:
+        dest: /etc/systemd/journald.conf.d/60-openctem.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (roles/os_baseline).
+          [Journal]
+          Storage=persistent
+          Compress=yes
+          SystemMaxUse={{ os_baseline_journald_system_max_use }}
+          MaxRetentionSec={{ os_baseline_journald_max_retention }}
+          ForwardToSyslog=no
+      notify: Restart journald
