@@ -433,6 +433,7 @@ while the previous release runs.
 | `docker compose` "no configuration file" | always name the project and files: `sudo docker compose -p openctem -f /opt/openctem/compose.yml -f /opt/openctem/compose.cloudflared.yml ps` (or `cd /opt/openctem` first, where `.env` sets them). |
 | Deploy stops at "Verify the release signatures" | the image digest is not signed by the release workflow at that tag, or sigstore is unreachable. Do not disable `openctem_verify_signatures` to get past it; investigate. |
 | Backup "off-host copy refused" | backups are in local (unencrypted) mode: set `backup_age_recipient`. |
+| API log shows `GET /api/v2/sensor/hello` 401, `POST /api/v1/ci/oidc/exchange` 400 and `GET /api/v1/me` every 5 minutes with no sensor installed | expected: the monitor (`openctem-monitor`, through the tunnel) and `openctem-verify` (inside the gateway) probe that sensors and CI reach the API and that people are challenged by Access. Their user agents are `openctem-monitor` and `openctem-verify`. A 404 on `/api/v1/me` with an alert "without a Cloudflare Access challenge" means the Access application is not enforcing yet. |
 | `journalctl -t openctem-monitor` shows alerts | each line names the failing check: health, routing, disk, backup age, tunnel path, certificate, Access. |
 
 Logs: `sudo docker compose -p openctem -f ... logs <service>`, `journalctl -u
