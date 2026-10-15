@@ -23,6 +23,15 @@
       openctem_api_env takes non-secret UPPER_CASE settings only, none of {{ openctem_api_env_reserved }};
       secrets are generated on the host.
 
+- name: The sign-up ceiling is valid
+  ansible.builtin.assert:
+    that:
+      - openctem_tenant_creation_mode is not defined
+      - openctem_signup_mode in ['disabled', 'domain', 'open']
+    fail_msg: >-
+      openctem_signup_mode must be disabled, domain or open. openctem_tenant_creation_mode is removed:
+      admin_only is openctem_signup_mode disabled (the default), self_service is open.
+
 - name: Docker and the compose plugin are installed
   ansible.builtin.command: docker compose version --short
   changed_when: false
