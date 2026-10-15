@@ -55,8 +55,11 @@ services:
       # gateway stays on the tunnel network.
       OPENCTEM_ALLOW_PLAIN_HTTP: "true"
 {% if openctem_ingress == 'cloudflared' %}
-      # Only cloudflared's X-Forwarded-For is believed (read right to left).
+      # Only cloudflared's client header is believed: Cf-Connecting-Ip, which
+      # the Cloudflare edge sets to the one visitor address. From any other
+      # peer it is ignored and dropped; the API gets the resolved address only.
       OPENCTEM_TRUSTED_PROXIES: {{ openctem_net_tunnel }}.10/32
+      OPENCTEM_CLIENT_IP_HEADERS: Cf-Connecting-Ip
 {% else %}
       # The host's reverse proxy arrives through the published loopback port
       # (no userland proxy: source = the tunnel network's gateway address).

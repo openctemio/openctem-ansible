@@ -56,8 +56,9 @@ If another workload on this host must publish a port, filter it in the
 
 `cloudflared` can reach only the gateway. Postgres and Redis are reachable
 only from the API (TLS, passwords) and the one-shot migration jobs. The
-gateway believes `X-Forwarded-For` only from cloudflared's fixed address, and
-the API believes `X-Real-IP` only from the gateway and web. An internal network
+gateway believes `Cf-Connecting-Ip` only from cloudflared's fixed address and
+hands the API the one resolved address, and the API believes forwarding
+headers only from the gateway and web. An internal network
 is no boundary against root on the host: host security comes first.
 
 ## Acceptance matrix
