@@ -15,19 +15,19 @@ keeps your site data outside this repository.
 
 ```mermaid
 flowchart LR
-  user([People<br/>browser]) -->|HTTPS + Access login| cf
-  sensor([Sensors]) -->|HTTPS, Access bypass<br/>/api/v2/sensor/*| cf
-  ci([CI pipelines]) -->|HTTPS, Access bypass<br/>/api/v1/ci/...| cf
-  cf[Cloudflare edge<br/>TLS · Access · WAF rate limit]
-  subgraph vm[Ubuntu VM: no inbound port except SSH from admin CIDRs]
-    cfd[cloudflared] -->|tunnel network<br/>http://gateway:80| gw[gateway<br/>plane routing]
-    gw -->|origin network| web[web console]
-    gw -->|origin network| api[API]
+  user(["People (browser)"]) -->|"HTTPS + Access login"| cf
+  sensor(["Sensors"]) -->|"HTTPS, Access bypass: /api/v2/sensor/*"| cf
+  ci(["CI pipelines"]) -->|"HTTPS, Access bypass: /api/v1/ci/..."| cf
+  cf["Cloudflare edge: TLS, Access, WAF rate limit"]
+  subgraph vm["Ubuntu VM: no inbound port except SSH from admin CIDRs"]
+    cfd["cloudflared"] -->|"tunnel network: http://gateway:80"| gw["gateway (plane routing)"]
+    gw -->|"origin network"| web["web console"]
+    gw -->|"origin network"| api["API"]
     web --> api
-    api -->|data network, TLS| pg[(PostgreSQL)]
-    api -->|data network, TLS| rd[(Redis)]
+    api -->|"data network, TLS"| pg[("PostgreSQL")]
+    api -->|"data network, TLS"| rd[("Redis")]
   end
-  cf <-.->|outbound tunnel 7844| cfd
+  cfd -.->|"outbound tunnel, port 7844"| cf
 ```
 
 ## Contents
