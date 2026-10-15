@@ -212,7 +212,10 @@ services:
       LOG_FORMAT: json
       GOMEMLIMIT: {{ openctem_api_gomemlimit }}
       AUTH_PROVIDER: local
-      TENANT_CREATION_MODE: {{ openctem_tenant_creation_mode }}
+      SIGNUP_MODE: {{ openctem_signup_mode }}
+{% if openctem_captcha_turnstile_site_key | length > 0 %}
+      CAPTCHA_TURNSTILE_SITE_KEY: {{ openctem_captcha_turnstile_site_key | string | to_json }}
+{% endif %}
 {% for key, value in openctem_api_env | dictsort %}
       {{ key }}: {{ value | string | to_json }}
 {% endfor %}

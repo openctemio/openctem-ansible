@@ -45,7 +45,18 @@ openctem_cpus_web: '1.0'
 openctem_cpus_postgres: '2.0'
 
 openctem_log_level: info
-openctem_tenant_creation_mode: admin_only
+# Sign-up ceiling of the API (SIGNUP_MODE); no API or console change can exceed it.
+#   disabled  (default) no public sign-up: accounts and organizations come from
+#             the platform administrator, invitations or an organization's SSO
+#   domain    sign-up only for addresses on an organization's verified domain;
+#             those people join that organization (internal portals)
+#   open      anyone may sign up and create an organization (hosted service):
+#             needs the platform e-mail (System > E-mail) before the API starts
+#             and the Turnstile keys (README.md, "Sign-up modes")
+openctem_signup_mode: disabled
+# Public Cloudflare Turnstile site key for open sign-up (the secret goes in
+# <openctem_secrets_dir>/captcha_turnstile_secret on the server; README.md).
+openctem_captcha_turnstile_site_key: ''
 # Extra NON-SECRET API settings (env_registry names), e.g.
 #   ASSET_COVERAGE_ENABLED: "false"      platform-wide off switch for automatic coverage
 #   ASSET_COVERAGE_DAILY_BUDGET: "2000"  attempts per organization per 24 h (default 5000)
@@ -53,7 +64,8 @@ openctem_tenant_creation_mode: admin_only
 openctem_api_env: {}
 openctem_api_env_reserved: [APP_ENV, APP_URL, SENSOR_PUBLIC_API_URL, SERVER_TRUSTED_PROXIES, SERVER_HOST, SERVER_PORT,
                             DB_HOST, DB_PORT, DB_USER, DB_NAME, DB_SSLMODE, REDIS_HOST, REDIS_PORT, REDIS_TLS_ENABLED,
-                            REDIS_TLS_CA_FILE, AUTH_COOKIE_SECURE, AUTH_COOKIE_DOMAIN, SIGNER_SOCKET, CORS_ALLOWED_ORIGINS]
+                            REDIS_TLS_CA_FILE, AUTH_COOKIE_SECURE, AUTH_COOKIE_DOMAIN, SIGNER_SOCKET, CORS_ALLOWED_ORIGINS,
+                            SIGNUP_MODE, TENANT_CREATION_MODE, CAPTCHA_TURNSTILE_SITE_KEY]
 
 # One-shot jobs of the compose file (skipped when starting an older release).
 openctem_oneshot_services: [gateway-init, datastore-tls, db-roles, migrate]
