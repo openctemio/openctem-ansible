@@ -50,7 +50,7 @@ fi
 # login or 401/403); a 200 means the path is open without Access.
 challenged() {
 	local r
-	r="$(curl -sS -o /dev/null -m 15 -w '%{http_code} %{redirect_url}' "https://$APP$1" 2> /dev/null)"
+	r="$(curl -sS -A "openctem-monitor" -o /dev/null -m 15 -w '%{http_code} %{redirect_url}' "https://$APP$1" 2> /dev/null)"
 	case "$r" in
 	302\ *cloudflareaccess.com*|401\ *|403\ *) ;;
 	*) alert "https://$APP$1 answered '$r' without a Cloudflare Access challenge" ;;
@@ -60,7 +60,7 @@ if [ "$EXTERNAL" = yes ]; then
 	challenged /
 	challenged /api/v1/me
 	# Bypassed machine path: reaches the API (401 = no sensor key), not Access.
-	code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "https://$APP/api/v2/sensor/hello" 2> /dev/null)"
+	code="$(curl -sS -A "openctem-monitor" -o /dev/null -m 15 -w '%{http_code}' "https://$APP/api/v2/sensor/hello" 2> /dev/null)"
 	[ "$code" = 401 ] || alert "sensor path https://$APP/api/v2/sensor/hello answered ${code:-nothing} (want 401: tunnel down, or Access bypass missing)"
 	if ! echo | openssl s_client -connect "$APP:443" -servername "$APP" 2> /dev/null | openssl x509 -noout -checkend "$CERT_WARN" > /dev/null 2>&1; then
 		alert "edge certificate of $APP expires within $(( CERT_WARN / 86400 )) days or could not be read"
@@ -86,7 +86,7 @@ if [ "$digest" != "$prev" ] || [ $(( now - sent )) -ge "$REPEAT" ]; then
 	if [ -n "$WEBHOOK_URL" ]; then
 		printf '%s\n' "$(hostname): ${#alerts[@]} OpenCTEM alert(s)" "${alerts[@]}" |
 			python3 -c 'import json,sys; print(json.dumps({"text": sys.stdin.read()}))' |
-			curl -sS -m 10 -o /dev/null -H 'Content-Type: application/json' --data-binary @- "$WEBHOOK_URL" ||
+			curl -sS -A "openctem-monitor" -m 10 -o /dev/null -H 'Content-Type: application/json' --data-binary @- "$WEBHOOK_URL" ||
 			logger -t openctem-monitor -p user.err -- "webhook delivery failed"
 	fi
 fi
