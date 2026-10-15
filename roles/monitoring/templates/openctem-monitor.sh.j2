@@ -3,7 +3,8 @@
 # Host monitor (systemd timer). Checks container health and routing
 # (openctem-verify), disk usage, backup freshness, and - from outside, through
 # Cloudflare - the tunnel path, the edge certificate, that Access guards the
-# console and that the bypassed sensor path still reaches the API. Alerts go
+# console, that the bypassed sensor path still reaches the API, and that the
+# API sees the visitor's address there (not the tunnel connector's). Alerts go
 # to journald (tag openctem-monitor) and, when configured, to a webhook. Exits 1 while any alert is active.
 set -uo pipefail
 APP='{{ openctem_app_host }}'
@@ -13,6 +14,7 @@ CERT_WARN=$(( {{ monitoring_cert_warn_days | int }} * 86400 ))
 BSTATE='{{ monitoring_backup_state_dir }}'
 EXTERNAL='{{ 'yes' if monitoring_external_probes | bool else 'no' }}'
 REPEAT='{{ monitoring_repeat_seconds | int }}'
+PROJECT='{{ openctem_project }}'
 MSTATE=/var/lib/openctem-monitor
 ENVF=/etc/openctem/monitor.env
 {% raw %}
@@ -56,12 +58,45 @@ challenged() {
 	*) alert "https://$APP$1 answered '$r' without a Cloudflare Access challenge" ;;
 	esac
 }
+# internal_ip <ip>: private, loopback, link-local, shared (CGNAT) or ULA.
+internal_ip() {
+	case "$1" in
+	10.* | 127.* | 192.168.* | 169.254.* | 172.1[6-9].* | 172.2[0-9].* | 172.3[01].*) return 0 ;;
+	100.6[4-9].* | 100.[7-9][0-9].* | 100.1[01][0-9].* | 100.12[0-7].*) return 0 ;;
+	::1 | [fF][cCdD]*:* | [fF][eE]80:*) return 0 ;;
+	esac
+	return 1
+}
+# client_address: one tunnelled request, marked with its own request id; the
+# API's log line for it must carry a public client_ip. An internal address
+# means the audit log and every per-address limit (sign-in throttling, the CI
+# token exchange) see one client for everybody.
+client_address() {
+	local rid api line ip
+	rid="octmon-$(date +%s)-$RANDOM"
+	curl -sS -o /dev/null -m 15 -H "X-Request-ID: $rid" "https://$APP/api/v2/sensor/hello" 2> /dev/null || return 0
+	api="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter label=com.docker.compose.service=api | head -n 1)"
+	[ -n "$api" ] || return 0
+	sleep 2
+	line="$(docker logs --since 5m "$api" 2>&1 | grep -F "\"request_id\":\"$rid\"" | tail -n 1)"
+	if [ -z "$line" ]; then
+		alert "client address: the tunnelled probe (request id $rid) is not in the API log"
+		return 0
+	fi
+	ip="$(sed -n 's/.*"client_ip":"\([^"]*\)".*/\1/p' <<< "$line")"
+	if [ -z "$ip" ]; then
+		alert "client address: the API log has no client_ip field (API older than the pinned release that records it)"
+	elif internal_ip "$ip"; then
+		alert "client address: the API sees tunnelled requests as $ip, an internal address; audit addresses and per-address limits are wrong (README, Troubleshooting: client address)"
+	fi
+}
 if [ "$EXTERNAL" = yes ]; then
 	challenged /
 	challenged /api/v1/me
 	# Bypassed machine path: reaches the API (401 = no sensor key), not Access.
 	code="$(curl -sS -o /dev/null -m 15 -w '%{http_code}' "https://$APP/api/v2/sensor/hello" 2> /dev/null)"
 	[ "$code" = 401 ] || alert "sensor path https://$APP/api/v2/sensor/hello answered ${code:-nothing} (want 401: tunnel down, or Access bypass missing)"
+	client_address
 	if ! echo | openssl s_client -connect "$APP:443" -servername "$APP" 2> /dev/null | openssl x509 -noout -checkend "$CERT_WARN" > /dev/null 2>&1; then
 		alert "edge certificate of $APP expires within $(( CERT_WARN / 86400 )) days or could not be read"
 	fi

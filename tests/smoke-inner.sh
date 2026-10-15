@@ -63,15 +63,25 @@ out="$(openctem-verify || true)"
 echo "$out"
 if echo "$out" | grep -q '^FAIL'; then echo "verify failed"; exit 1; fi
 
-say "client address trust (X-Forwarded-For only from the cloudflared address)"
+say "client address trust (Cf-Connecting-Ip only from the cloudflared address)"
+# What the Cloudflare edge sends through the tunnel when the visitor typed its
+# own X-Forwarded-For: Cf-Connecting-Ip = visitor, X-Forwarded-For = typed
+# list + visitor. From .10 (cloudflared) the visitor must reach the API; from
+# .50 (any other container on the tunnel network) the headers are ignored.
+# The sensor path answers 401, so the API logs the request with client_ip.
 for ip in 10 50; do
 	docker run --rm --network "${project}_tunnel" --ip "$tunnel.$ip" "$curl_image" -s -o /dev/null \
-		-H "Host: $host" -H 'X-Forwarded-For: 198.51.100.9, 203.0.113.7' "http://$tunnel.11/health"
+		-H "Host: $host" -H "X-Request-ID: smoke-cip-$ip" -H 'Cf-Connecting-Ip: 203.0.113.7' \
+		-H 'X-Forwarded-For: 198.51.100.9, 203.0.113.7' "http://$tunnel.11/api/v2/sensor/hello"
 done
-log="$(dc logs gateway 2>&1 | grep '"uri": "/health"' | tail -n 2)"
-echo "$log" | grep -q "\"remote_ip\": \"$tunnel.10\".*\"client_ip\": \"203.0.113.7\"" || { echo "trusted proxy not honoured"; exit 1; }
-echo "$log" | grep -q "\"remote_ip\": \"$tunnel.50\".*\"client_ip\": \"$tunnel.50\"" || { echo "untrusted X-Forwarded-For believed"; exit 1; }
-echo "  OK: believed from .10 only"
+sleep 1
+apilog="$(dc logs api 2>&1)"
+cip() { grep -F "\"request_id\":\"$1\"" <<< "$apilog" | sed -n 's/.*"client_ip":"\([^"]*\)".*/\1/p' | tail -n 1; }
+got10="$(cip smoke-cip-10)"
+got50="$(cip smoke-cip-50)"
+[ "$got10" = 203.0.113.7 ] || { echo "API saw '$got10' through cloudflared, want the visitor 203.0.113.7"; exit 1; }
+[ "$got50" = "$tunnel.50" ] || { echo "API saw '$got50' from an untrusted peer, want $tunnel.50 (spoofed header believed?)"; exit 1; }
+echo "  OK: the API sees the visitor through .10 and the peer itself from .50"
 
 say "backups, drill and restore (Ubuntu 26.04)"
 ubuntu "
