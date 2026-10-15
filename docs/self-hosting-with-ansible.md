@@ -13,15 +13,17 @@ Every stage is opt-in and can be rehearsed with `--check --diff`.
 
 ```mermaid
 flowchart LR
-  people([People]) -->|Access login| edge[Cloudflare<br/>TLS · Access · WAF]
-  sensors([Sensors]) -->|Access bypass: /api/v2/sensor/*| edge
-  ci([CI]) -->|Access bypass: /api/v1/ci/...| edge
-  edge <-.->|outbound tunnel| cfd
-  subgraph vm[Ubuntu VM: no inbound port but SSH from admin networks]
-    cfd[cloudflared] --> gw[gateway] --> web[web console] --> api[API]
+  people(["People"]) -->|"Access login"| edge["Cloudflare: TLS, Access, WAF"]
+  sensors(["Sensors"]) -->|"Access bypass: /api/v2/sensor/*"| edge
+  ci(["CI"]) -->|"Access bypass: /api/v1/ci/..."| edge
+  cfd -.->|"outbound tunnel"| edge
+  subgraph vm["Ubuntu VM: no inbound port but SSH from admin networks"]
+    cfd["cloudflared"] --> gw["gateway"]
+    gw --> web["web console"]
+    web --> api["API"]
     gw --> api
-    api --> pg[(PostgreSQL)]
-    api --> rd[(Redis)]
+    api --> pg[("PostgreSQL")]
+    api --> rd[("Redis")]
   end
 ```
 
