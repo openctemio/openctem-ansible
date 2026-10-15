@@ -282,8 +282,44 @@ sudo openctem-bootstrap-admin -email=admin@example.com -backup-email=breakglass@
 Sign in at `https://<app host>/login` with the printed temporary password,
 change it, and enroll an authenticator (TOTP), which the admin console
 requires. Store the break-glass credentials offline. Organizations are created
-by the platform administrator (`TENANT_CREATION_MODE=admin_only`). Configure
+by the platform administrator: public sign-up is off (`openctem_signup_mode:
+disabled`, the API's `SIGNUP_MODE`), and no console change can open it. Configure
 e-mail in the admin console (System → E-mail) so invitations can be sent.
+
+### Sign-up modes
+
+`openctem_signup_mode` sets the API's sign-up ceiling (`SIGNUP_MODE`):
+
+| Value | Who can create an account | Who creates organizations |
+|---|---|---|
+| `disabled` (default) | the platform administrator, an invitation, or an organization's SSO | the platform administrator |
+| `domain` | also anyone whose address is on an organization's verified domain; they join that organization | the platform administrator |
+| `open` | anyone (hosted service) | anyone, within the console policy and the limits |
+
+The admin console (System → Sign-up) can keep sign-up closed or pause it below
+the ceiling, never above it. `domain` and `open` verify every self-registered
+address, so the API refuses to start until the platform e-mail is set: run
+`openctem-bootstrap-admin` with `BOOTSTRAP_SMTP_*` first, or deploy once with
+`disabled`, set System → E-mail, then change the mode and deploy again.
+
+**Hosted-service sign-up** (`open` on the internet) also needs Cloudflare
+Turnstile, or the API refuses to start in production:
+
+```yaml
+openctem_signup_mode: open
+openctem_captcha_turnstile_site_key: "0x4AAAA..."   # public site key
+```
+
+and the secret on the server (never in the inventory), which the secrets
+script adds to `api.env`:
+
+```sh
+printf '%s' '0x4AAAA...secret' | sudo install -m 0400 /dev/stdin /opt/openctem/secrets/captcha_turnstile_secret
+```
+
+Upgrading from a kit that set `openctem_tenant_creation_mode`: remove it.
+`admin_only` is `openctem_signup_mode: disabled` (the default); `self_service`
+is `open`. The play stops while the old variable is set.
 
 ### Automatic coverage
 
