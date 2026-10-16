@@ -70,7 +70,7 @@ done
 
 log "generated secrets (not the tunnel token: it is re-issued from Cloudflare)"
 tar -C "$SECRETS" -czf "$work/secrets.tar.gz" \
-	db_superuser_password db_migrate_password db_app_password redis_password app_encryption_key metrics_token
+	db_superuser_password db_migrate_password db_app_password db_console_password redis_password app_encryption_key metrics_token
 deploy_files=()
 for f in compose.yml compose.cloudflared.yml .env; do
 	[ -f "$ROOT/$f" ] && deploy_files+=("$f")
