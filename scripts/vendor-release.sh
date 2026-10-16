@@ -33,11 +33,17 @@ if [ -f "$src/gateway/admin/on.site" ]; then
   cp "$src/gateway/modes/http.admin" "$dest/gateway/modes/"
   sums+=(gateway/admin/off.site gateway/admin/off.tenant gateway/admin/on.site gateway/admin/on.tenant gateway/modes/http.admin)
 fi
+# The console's own database role (the bootstrap script knows admin_user).
+console_db_role=false
+if grep -qF ':{?admin_user}' "$src/postgres/least-privilege-roles.sql"; then
+  console_db_role=true
+fi
 ( cd "$dest" && sha256sum "${sums[@]}" > SHA256SUMS )
 echo "vendored into $dest"
 echo "openctem_releases entry (verify each with cosign before committing):"
 echo "  $tag:"
 [ "$admin_plane" = false ] || echo "    admin_plane: true"
+[ "$console_db_role" = false ] || echo "    console_db_role: true"
 for name in openctem-api openctem-web openctem-gateway migrations; do
   d="$(docker buildx imagetools inspect "ghcr.io/openctemio/$name:$tag" --format '{{json .Manifest.Digest}}' | tr -d '"')"
   key="${name#openctem-}"
