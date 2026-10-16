@@ -89,6 +89,25 @@ staff's ranges, or `0.0.0.0/0` and `::/0` when the Access application is the
 gate. With an older release `openctem_admin_host` is refused and the console
 stays on the main host name.
 
+## The console's own database role
+
+From the release whose entry in `versions.yml` has `console_db_role: true`,
+the stack adds a third database role, `openctem_console`. Only that role writes
+the platform console's identity tables (administrators, console sessions and
+credentials, the platform identity provider). The API's `openctem_app` then
+only reads `admin_users`, so a SQL injection in the tenant-facing API cannot
+add an administrator. Nothing to configure:
+
+- `openctem-secrets` generates `db_console_password`, which backups include;
+- `db-roles` creates the role and moves the tables, and a `db-grants` job
+  runs the same script after the migrations, before the API;
+- the API opens a second small pool as `openctem_console`, and
+  `openctem-bootstrap-admin` connects as it.
+
+A rollback to a release without the flag needs nothing either: that release's
+`db-roles` runs the script without `admin_user`, which gives `openctem_app`
+its write on those tables back before the older API starts.
+
 ## Security model
 
 - The VM accepts no inbound connection except SSH from your administrator
