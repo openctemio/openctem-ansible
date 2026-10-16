@@ -67,6 +67,28 @@ stage changes, backups and restore, upgrades with automatic rollback,
 troubleshooting (including Ubuntu 26.04's uutils coreutils and Docker with
 ufw) and a hardening checklist.
 
+## Platform console on its own host name
+
+From the release that ships the console plane (`admin_plane: true` in
+`versions.yml`), the API serves the platform console's API only on an
+internal listener (`ADMIN_LISTEN_ADDR`, the API's fixed address on the origin
+network), and you can give the console its own host name:
+
+```yaml
+openctem_admin_host: admin.ctem.example.com
+openctem_admin_allowed_cidrs: [203.0.113.0/24]   # your staff's egress ranges
+```
+
+The gateway then serves the console only on that name, the web console serves
+it nowhere else, and `https://<openctem_app_host>/admin` answers 404.
+`roles/cloudflared` adds the host name to the tunnel; give it its own
+Cloudflare Access application (CLOUDFLARE-ACCESS.md, section 2) with your
+administrators only. Behind Cloudflare the client address is the visitor's, so
+the default allow-list (private networks only) blocks every visitor: list your
+staff's ranges, or `0.0.0.0/0` and `::/0` when the Access application is the
+gate. With an older release `openctem_admin_host` is refused and the console
+stays on the main host name.
+
 ## Security model
 
 - The VM accepts no inbound connection except SSH from your administrator
