@@ -48,7 +48,7 @@ if [ -z "$pub" ]; then ok "no host port published beyond loopback"; else bad "pu
 
 # status <host> <port> <path>: HTTP status seen by the gateway itself.
 status() {
-	dc exec -T gateway sh -c 'wget -S -q -O /dev/null -T 10 --header "Host: $1" "http://127.0.0.1:$2$3" 2>&1 | sed -n "s/^ *HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p" | tail -n 1' _ "$1" "$2" "$3"
+	dc exec -T gateway sh -c 'wget -U openctem-verify -S -q -O /dev/null -T 10 --header "Host: $1" "http://127.0.0.1:$2$3" 2>&1 | sed -n "s/^ *HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p" | tail -n 1' _ "$1" "$2" "$3"
 }
 expect() { # expect <want: code or !code> <host> <port> <path>
 	got="$(status "$2" "$3" "$4")"
@@ -64,7 +64,7 @@ expect '!404' "$app" 80 /login
 expect 401 "$app" 80 /api/v2/sensor/hello
 # CI OIDC exchange reaches the API (400 = empty body), not the console's CSRF guard.
 post() { # post <path>: status of an empty JSON POST
-	dc exec -T gateway sh -c 'wget -S -q -O /dev/null -T 10 --header "Host: $1" --header "Content-Type: application/json" --post-data "{}" "http://127.0.0.1:80$2" 2>&1 | sed -n "s/^ *HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p" | tail -n 1' _ "$app" "$1"
+	dc exec -T gateway sh -c 'wget -U openctem-verify -S -q -O /dev/null -T 10 --header "Host: $1" --header "Content-Type: application/json" --post-data "{}" "http://127.0.0.1:80$2" 2>&1 | sed -n "s/^ *HTTP\/[0-9.]* \([0-9][0-9]*\).*/\1/p" | tail -n 1' _ "$app" "$1"
 }
 got="$(post /api/v1/ci/oidc/exchange)"
 [ "$got" = 400 ] && ok "POST /api/v1/ci/oidc/exchange -> 400 (API)" || bad "POST /api/v1/ci/oidc/exchange -> ${got:-no answer} (want 400 from the API)"

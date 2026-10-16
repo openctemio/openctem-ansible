@@ -1,4 +1,7 @@
 {% set rel = openctem_releases[openctem_version] %}
+{% set admin_plane = rel.admin_plane | default(false) | bool %}
+{% set console_db_role = rel.console_db_role | default(false) | bool %}
+{% set admin_site = admin_plane and (openctem_admin_host | length > 0) %}
 # {{ ansible_managed }}
 # OpenCTEM {{ openctem_version }}. The only way in is the gateway on the
 # tunnel network: cloudflared (compose.cloudflared.yml, roles/cloudflared) or,
@@ -66,6 +69,13 @@ services:
       OPENCTEM_TRUSTED_PROXIES: {{ openctem_net_tunnel }}.1/32
 {% endif %}
       GATEWAY_MAX_BODY_SIZE: 256MB
+{% if admin_site %}
+      # The platform console on its own host name, private networks only by
+      # default (openctem_admin_allowed_cidrs).
+      OPENCTEM_ADMIN_SITE: host
+      OPENCTEM_ADMIN_HOST: {{ openctem_admin_host }}
+      OPENCTEM_ADMIN_ALLOWED_CIDRS: "{{ openctem_admin_allowed_cidrs | join(' ') }}"
+{% endif %}
     volumes:
       - {{ openctem_release_root }}/gateway:/etc/caddy:ro
       - gateway-data:/data
@@ -105,6 +115,14 @@ services:
     environment:
       NODE_ENV: production
       BACKEND_API_URL: http://api:8080
+{% if admin_plane %}
+      # The console proxy talks to the API's console listener.
+      ADMIN_API_URL: http://api:8081
+{% endif %}
+{% if admin_site %}
+      # The console only on its own host name, never on the main one.
+      OPENCTEM_ADMIN_PLANE: separate
+{% endif %}
       NEXT_PUBLIC_APP_URL: https://{{ openctem_app_host }}
       SECURE_COOKIES: "true"
       # Only the gateway reaches web (origin network), so its forwarded
@@ -132,7 +150,14 @@ services:
     logging: *logging
 
   # --- Database roles and migrations (one-shot, every up) ------------------------
-  db-roles:
+{% if console_db_role %}
+  # openctem_console alone writes the console's identity tables
+  # (administrators, console sessions); the API's openctem_app only reads
+  # admin_users. db-grants reruns the script after migrate, so a table a
+  # release adds is covered before the API starts.
+{% endif %}
+  db-roles:{% if console_db_role %} &db-roles{% endif %}
+
     image: {{ openctem_postgres_image }}
     entrypoint: ["/bin/sh", "-c"]
     command:
@@ -141,6 +166,9 @@ services:
         exec psql -X -v ON_ERROR_STOP=1 \
           -v app_user="$$DB_USER" -v app_password="$$DB_PASSWORD" \
           -v migrator_user="$$DB_MIGRATE_USER" -v migrator_password="$$DB_MIGRATE_PASSWORD" \
+{% if console_db_role %}
+          -v admin_user="$$DB_ADMIN_USER" -v admin_password="$$DB_ADMIN_PASSWORD" \
+{% endif %}
           -f /bootstrap/least-privilege-roles.sql
     environment:
       PGHOST: postgres
@@ -150,6 +178,9 @@ services:
       PGUSER: postgres
       DB_USER: openctem_app
       DB_MIGRATE_USER: openctem_migrator
+{% if console_db_role %}
+      DB_ADMIN_USER: openctem_console
+{% endif %}
     env_file:
       - {{ openctem_secrets_dir }}/db-roles.env
     volumes:
@@ -186,6 +217,14 @@ services:
     restart: "no"
     logging: *logging
 
+{% if console_db_role %}
+  db-grants:
+    <<: *db-roles
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+{% endif %}
   # --- API ------------------------------------------------------------------------
   api:
     image: {{ rel.api }}
@@ -196,6 +235,13 @@ services:
       SERVER_PORT: "8080"
       # X-Real-IP / X-Forwarded-For believed from the gateway and web only.
       SERVER_TRUSTED_PROXIES: {{ openctem_net_origin }}.10,{{ openctem_net_origin }}.11
+{% if admin_plane %}
+      # The console API only on its own listener, on the API's fixed private
+      # address (plain HTTP on the origin network, never published); the main
+      # port answers 404 for /api/v1/admin.
+      ADMIN_LISTEN_ADDR: {{ openctem_net_origin }}.12:8081
+      ADMIN_ALLOWED_CIDRS: "{{ openctem_admin_allowed_cidrs | join(' ') }}"
+{% endif %}
       # The one public origin: CORS allow-list, e-mail links, SSO/OAuth
       # callbacks, and the URL sensors and CI are given (SENSOR_PUBLIC_API_URL
       # unset = this). Cookies are host-only (AUTH_COOKIE_DOMAIN unset).
@@ -204,6 +250,10 @@ services:
       DB_HOST: postgres
       DB_PORT: "5432"
       DB_USER: openctem_app
+{% if console_db_role %}
+      # The console's identity tables through their own role (password in api.env).
+      DB_ADMIN_USER: openctem_console
+{% endif %}
       DB_NAME: openctem
       DB_SSLMODE: require
       REDIS_HOST: redis
@@ -215,7 +265,10 @@ services:
       LOG_FORMAT: json
       GOMEMLIMIT: {{ openctem_api_gomemlimit }}
       AUTH_PROVIDER: local
-      TENANT_CREATION_MODE: {{ openctem_tenant_creation_mode }}
+      SIGNUP_MODE: {{ openctem_signup_mode }}
+{% if openctem_captcha_turnstile_site_key | length > 0 %}
+      CAPTCHA_TURNSTILE_SITE_KEY: {{ openctem_captcha_turnstile_site_key | string | to_json }}
+{% endif %}
 {% for key, value in openctem_api_env | dictsort %}
       {{ key }}: {{ value | string | to_json }}
 {% endfor %}
@@ -236,14 +289,24 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+{% if console_db_role %}
+      db-grants:
+{% else %}
       migrate:
+{% endif %}
         condition: service_completed_successfully
 {% if openctem_job_signer | bool %}
       signer:
         condition: service_healthy
 {% endif %}
     networks:
+{% if admin_plane %}
+      origin:
+        # Fixed, so the console listener binds this private address only.
+        ipv4_address: {{ openctem_net_origin }}.12
+{% else %}
       origin: {}
+{% endif %}
       data: {}
       egress_api: {}
     volumes:
