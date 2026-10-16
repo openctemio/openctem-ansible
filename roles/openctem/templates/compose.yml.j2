@@ -1,4 +1,6 @@
 {% set rel = openctem_releases[openctem_version] %}
+{% set admin_plane = rel.admin_plane | default(false) | bool %}
+{% set admin_site = admin_plane and (openctem_admin_host | length > 0) %}
 # {{ ansible_managed }}
 # OpenCTEM {{ openctem_version }}. The only way in is the gateway on the
 # tunnel network: cloudflared (compose.cloudflared.yml, roles/cloudflared) or,
@@ -63,6 +65,13 @@ services:
       OPENCTEM_TRUSTED_PROXIES: {{ openctem_net_tunnel }}.1/32
 {% endif %}
       GATEWAY_MAX_BODY_SIZE: 256MB
+{% if admin_site %}
+      # The platform console on its own host name, private networks only by
+      # default (openctem_admin_allowed_cidrs).
+      OPENCTEM_ADMIN_SITE: host
+      OPENCTEM_ADMIN_HOST: {{ openctem_admin_host }}
+      OPENCTEM_ADMIN_ALLOWED_CIDRS: "{{ openctem_admin_allowed_cidrs | join(' ') }}"
+{% endif %}
     volumes:
       - {{ openctem_release_root }}/gateway:/etc/caddy:ro
       - gateway-data:/data
@@ -102,6 +111,14 @@ services:
     environment:
       NODE_ENV: production
       BACKEND_API_URL: http://api:8080
+{% if admin_plane %}
+      # The console proxy talks to the API's console listener.
+      ADMIN_API_URL: http://api:8081
+{% endif %}
+{% if admin_site %}
+      # The console only on its own host name, never on the main one.
+      OPENCTEM_ADMIN_PLANE: separate
+{% endif %}
       NEXT_PUBLIC_APP_URL: https://{{ openctem_app_host }}
       SECURE_COOKIES: "true"
       # Only the gateway reaches web (origin network), so its forwarded
@@ -193,6 +210,13 @@ services:
       SERVER_PORT: "8080"
       # X-Real-IP / X-Forwarded-For believed from the gateway and web only.
       SERVER_TRUSTED_PROXIES: {{ openctem_net_origin }}.10,{{ openctem_net_origin }}.11
+{% if admin_plane %}
+      # The console API only on its own listener, on the API's fixed private
+      # address (plain HTTP on the origin network, never published); the main
+      # port answers 404 for /api/v1/admin.
+      ADMIN_LISTEN_ADDR: {{ openctem_net_origin }}.12:8081
+      ADMIN_ALLOWED_CIDRS: "{{ openctem_admin_allowed_cidrs | join(' ') }}"
+{% endif %}
       # The one public origin: CORS allow-list, e-mail links, SSO/OAuth
       # callbacks, and the URL sensors and CI are given (SENSOR_PUBLIC_API_URL
       # unset = this). Cookies are host-only (AUTH_COOKIE_DOMAIN unset).
@@ -243,7 +267,13 @@ services:
         condition: service_healthy
 {% endif %}
     networks:
+{% if admin_plane %}
+      origin:
+        # Fixed, so the console listener binds this private address only.
+        ipv4_address: {{ openctem_net_origin }}.12
+{% else %}
       origin: {}
+{% endif %}
       data: {}
       egress_api: {}
     volumes:
