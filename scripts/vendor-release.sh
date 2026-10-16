@@ -22,11 +22,28 @@ cp "$src/gateway/Caddyfile" "$src/gateway/planes.caddy" "$src/gateway/entrypoint
 cp "$src/gateway/modes/http.global" "$dest/gateway/modes/"
 cp "$src/gateway/sensors/off.wrappers" "$dest/gateway/sensors/"
 cp "$src/postgres/least-privilege-roles.sql" "$dest/postgres/"
-( cd "$dest" && sha256sum gateway/Caddyfile gateway/entrypoint.sh gateway/modes/http.global \
-    gateway/planes.caddy gateway/sensors/off.wrappers postgres/least-privilege-roles.sql > SHA256SUMS )
+sums=(gateway/Caddyfile gateway/entrypoint.sh gateway/modes/http.global
+  gateway/planes.caddy gateway/sensors/off.wrappers postgres/least-privilege-roles.sql)
+# The platform console's own site (releases that ship the console plane).
+admin_plane=false
+if [ -f "$src/gateway/admin/on.site" ]; then
+  admin_plane=true
+  mkdir -p "$dest/gateway/admin"
+  cp "$src/gateway/admin/off.site" "$src/gateway/admin/off.tenant" "$src/gateway/admin/on.site" "$src/gateway/admin/on.tenant" "$dest/gateway/admin/"
+  cp "$src/gateway/modes/http.admin" "$dest/gateway/modes/"
+  sums+=(gateway/admin/off.site gateway/admin/off.tenant gateway/admin/on.site gateway/admin/on.tenant gateway/modes/http.admin)
+fi
+# The console's own database role (the bootstrap script knows admin_user).
+console_db_role=false
+if grep -qF ':{?admin_user}' "$src/postgres/least-privilege-roles.sql"; then
+  console_db_role=true
+fi
+( cd "$dest" && sha256sum "${sums[@]}" > SHA256SUMS )
 echo "vendored into $dest"
 echo "openctem_releases entry (verify each with cosign before committing):"
 echo "  $tag:"
+[ "$admin_plane" = false ] || echo "    admin_plane: true"
+[ "$console_db_role" = false ] || echo "    console_db_role: true"
 for name in openctem-api openctem-web openctem-gateway migrations; do
   d="$(docker buildx imagetools inspect "ghcr.io/openctemio/$name:$tag" --format '{{json .Manifest.Digest}}' | tr -d '"')"
   key="${name#openctem-}"
