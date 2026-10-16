@@ -119,6 +119,13 @@ Zero Trust → **Access → Applications → Add an application → Self-hosted*
 - Settings → Cookies: **SameSite Lax**, **HTTP Only** on, **Binding Cookie** on.
 - Settings → CORS: leave off (one origin).
 
+### The platform console's host name
+
+With `openctem_admin_host` set, create a second Access application for that
+host name with a policy for your platform administrators only (hardware-key
+MFA where your identity provider offers it). Never add a Bypass rule for it:
+no machine calls the console.
+
 ## 3. Access Bypass applications for machines
 
 Create **one self-hosted application per machine path**. Access uses the most

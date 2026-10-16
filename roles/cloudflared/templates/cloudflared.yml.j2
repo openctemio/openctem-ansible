@@ -5,4 +5,9 @@
 ingress:
   - hostname: {{ openctem_app_host }}
     service: http://gateway:80
+{% if (openctem_releases[openctem_version].admin_plane | default(false) | bool) and (openctem_admin_host | default('') | length > 0) %}
+  # The platform console's own host name (its own Cloudflare Access application).
+  - hostname: {{ openctem_admin_host }}
+    service: http://gateway:80
+{% endif %}
   - service: http_status:404

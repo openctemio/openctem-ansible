@@ -99,7 +99,7 @@
       changed_when: true
       when:
         - not ansible_check_mode
-        - openctem_release_copy.changed or openctem_site_tpl.changed
+        - openctem_release_copy.changed or openctem_site_tpl.changed or (openctem_release_admin_copy.changed | default(false))
         - "'gateway' not in (openctem_up.stderr | default(''))"
 
     - name: Verify health and routing
