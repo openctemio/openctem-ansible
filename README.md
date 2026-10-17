@@ -511,9 +511,10 @@ v0.10.1 too.
    - sensors over mTLS (`api:9443`, passed through by the gateway at layer 4)
      are off in the kit's gateway (`sensors/off.wrappers`); enrolling sensors
      needs a kit change of its own;
-   - behind Cloudflare, set `OPENCTEM_CLIENT_IP_HEADERS` as described in
-     docs/CLOUDFLARE-ACCESS.md: only v0.10.1's gateway reads it (v0.9.7's
-     ignores it);
+   - the kit sets `OPENCTEM_CLIENT_IP_HEADERS=Cf-Connecting-Ip` on the gateway
+     (visitor address behind the tunnel, docs/CLOUDFLARE-ACCESS.md); only
+     v0.10.1's gateway reads it (v0.9.7's ignores it, so the API sees the
+     tunnel's address there);
    - there is no `INTERNAL_API_*` variable in v0.10.0;
    - the SMTP variables are removed (platform e-mail is set in the console,
      System > E-mail); the kit never rendered them.
@@ -551,12 +552,14 @@ see the rollback notes below.
 | 404 for every page through the tunnel | the route sends another host name, or an HTTP Host Header override: the gateway serves only `openctem_app_host`. |
 | Sensors or CI get an HTML login page | the Access Bypass application for that path is missing or its path is wrong ([docs/CLOUDFLARE-ACCESS.md §3](docs/CLOUDFLARE-ACCESS.md#3-access-bypass-applications-for-machines)). |
 | Sensors get 429 | the WAF rate limit is too low for the number of sensors behind one address. |
+| Audit log shows `172.30.81.10` (or another internal address) for every request; one client's sign-in or CI throttling hits everyone | the API sees the tunnel connector instead of the visitor: the gateway image predates the client-address fix. Deploy a release that has it and re-run `playbooks/50-openctem.yml`; the gateway must have `OPENCTEM_CLIENT_IP_HEADERS=Cf-Connecting-Ip` (`sudo docker inspect openctem-gateway-1 --format '{{.Config.Env}}'`). Check: [docs/CLOUDFLARE-ACCESS.md, Client address](docs/CLOUDFLARE-ACCESS.md#client-address-audit-log-and-per-address-limits). |
+| CI jobs get 429 from Cloudflare on `/api/v1/ci/oidc/exchange` | a per-IP edge limit sized for one machine: hosted runners share egress addresses across customers. Use 600 per minute per IP ([docs/CLOUDFLARE-ACCESS.md §4](docs/CLOUDFLARE-ACCESS.md#4-waf-rate-limit-on-the-bypassed-paths)). |
 | Uploads over 100 MB fail | Cloudflare's request body limit (Free/Pro). |
 | `docker compose` "no configuration file" | always name the project and files: `sudo docker compose -p openctem -f /opt/openctem/compose.yml -f /opt/openctem/compose.cloudflared.yml ps` (or `cd /opt/openctem` first, where `.env` sets them). |
 | Deploy stops at "Verify the release signatures" | the image digest is not signed by the release workflow at that tag, or sigstore is unreachable. Do not disable `openctem_verify_signatures` to get past it; investigate. |
 | Backup "off-host copy refused" | backups are in local (unencrypted) mode: set `backup_age_recipient`. |
 | API log shows `GET /api/v2/sensor/hello` 401, `POST /api/v1/ci/oidc/exchange` 400 and `GET /api/v1/me` every 5 minutes with no sensor installed | expected: the monitor (`openctem-monitor`, through the tunnel) and `openctem-verify` (inside the gateway) probe that sensors and CI reach the API and that people are challenged by Access. Their user agents are `openctem-monitor` and `openctem-verify`. A 404 on `/api/v1/me` with an alert "without a Cloudflare Access challenge" means the Access application is not enforcing yet. |
-| `journalctl -t openctem-monitor` shows alerts | each line names the failing check: health, routing, disk, backup age, tunnel path, certificate, Access. |
+| `journalctl -t openctem-monitor` shows alerts | each line names the failing check: health, routing, disk, backup age, tunnel path, certificate, Access, client address. |
 
 Logs: `sudo docker compose -p openctem -f ... logs <service>`, `journalctl -u
 openctem-backup`, `journalctl -t openctem-monitor`, `sudo ausearch -k
