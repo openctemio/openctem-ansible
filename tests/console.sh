@@ -7,7 +7,6 @@
 set -euo pipefail
 kit="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 work="${1:-$(mktemp -d)}"
-fixture="@$kit/tests/fixtures/console-release.yml"
 cd "$kit"
 
 render() { # render <name> [-e k=v ...]
