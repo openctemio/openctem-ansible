@@ -65,8 +65,13 @@ openctem_api_env: {}
 openctem_api_env_reserved: [APP_ENV, APP_URL, SENSOR_PUBLIC_API_URL, SERVER_TRUSTED_PROXIES, SERVER_HOST, SERVER_PORT,
                             DB_HOST, DB_PORT, DB_USER, DB_NAME, DB_SSLMODE, REDIS_HOST, REDIS_PORT, REDIS_TLS_ENABLED,
                             REDIS_TLS_CA_FILE, AUTH_COOKIE_SECURE, AUTH_COOKIE_DOMAIN, SIGNER_SOCKET, CORS_ALLOWED_ORIGINS,
-                            SIGNUP_MODE, TENANT_CREATION_MODE, CAPTCHA_TURNSTILE_SITE_KEY,
+                            FINGERPRINT_KEY, SIGNUP_MODE, TENANT_CREATION_MODE, CAPTCHA_TURNSTILE_SITE_KEY,
                             ADMIN_LISTEN_ADDR, ADMIN_LISTEN_ALLOW_ALL_INTERFACES, ADMIN_ALLOWED_CIDRS]
+
+# Names the API (v0.10.0) refuses to start with: never passed through openctem_api_env.
+openctem_api_env_removed: [TENANT_CREATION_MODE, AUTH_ALLOW_REGISTRATION, JIRA_WEBHOOK_SECRET,
+                           SMTP_ENABLED, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM, SMTP_FROM_NAME,
+                           SMTP_TLS, SMTP_SKIP_VERIFY, SMTP_TIMEOUT]
 
 # --- Platform console (OpenCTEM RFC-022 revision 20) ---------------------------------
 # Needs a release that ships the console plane (versions.yml: admin_plane: true);
