@@ -9,7 +9,8 @@ script="${1:?usage: $0 <rendered openctem-secrets>}"
 tmp="$(mktemp -d)"
 trap 'find "$tmp" -delete' EXIT
 run() { # run <secrets dir>
-	mkdir -m 0700 -p "$1"
+	mkdir -p "$1"
+	chmod 0700 "$1"
 	sed "s|^d='.*'|d='$1'|" "$script" > "$tmp/s.sh"
 	sh "$tmp/s.sh" > "$tmp/out.txt"
 }
