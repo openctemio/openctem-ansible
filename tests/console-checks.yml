@@ -1,0 +1,14 @@
+---
+# Runs only the console settings checks of roles/openctem (tests/console.sh).
+- name: Console settings checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/openctem/defaults/main.yml
+    - ../versions.yml
+    - vars.yml
+  tasks:
+    - name: Checks
+      ansible.builtin.import_tasks: ../roles/openctem/tasks/console_checks.yml

@@ -31,6 +31,7 @@ openctem_mem_postgres: 2g
 openctem_mem_api: 1536m
 openctem_api_gomemlimit: 1200MiB
 openctem_mem_web: 768m
+openctem_mem_console: 512m   # platform console (releases with console_service)
 openctem_mem_redis: 512m
 openctem_mem_gateway: 256m   # Caddy gateway (plane routing)
 openctem_mem_signer: 128m
@@ -73,15 +74,37 @@ openctem_api_env_removed: [TENANT_CREATION_MODE, AUTH_ALLOW_REGISTRATION, JIRA_W
                            SMTP_ENABLED, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM, SMTP_FROM_NAME,
                            SMTP_TLS, SMTP_SKIP_VERIFY, SMTP_TIMEOUT]
 
-# --- Platform console (OpenCTEM RFC-022 revision 20) ---------------------------------
-# Needs a release that ships the console plane (versions.yml: admin_plane: true);
-# with an older release these settings are ignored and the console stays on the
-# main host. With one, the API serves the console API only on its internal
-# listener, and with openctem_admin_host set the console has its own host name:
-# the web console serves it only there and the main host answers 404 for it.
-# Route that host through the tunnel (roles/cloudflared adds it) and protect it
-# with its own Cloudflare Access application (docs/CLOUDFLARE-ACCESS.md).
-openctem_admin_host: ''
+# --- Platform console (OpenCTEM RFC-022 revision 21) ---------------------------------
+# From a release flagged console_service in versions.yml, the platform console
+# is its own service (image openctem-console) on its own site, at the ROOT of
+# that site (no /admin path), served only to openctem_admin_allowed_cidrs.
+# Another origin and another process than the web console, so a flaw in a
+# tenant page cannot reach the administration plane. Older releases keep the
+# console in the web console and ignore openctem_admin_site / _port / _bind.
+#
+# openctem_admin_site:
+#   host  RECOMMENDED for production: the console on its own host name
+#         (openctem_admin_host, e.g. admin.example.com). Behind the tunnel it
+#         is reached through roles/cloudflared, and that host name MUST have
+#         its own Cloudflare Access application (docs/CLOUDFLARE-ACCESS.md).
+#         Never publish the console through a public tunnel without that
+#         zero-trust layer.
+#   port  the default, for simplicity: a second port of the host
+#         (openctem_admin_port) on the loopback ingress only, bound to
+#         openctem_admin_bind. Not published through the tunnel. A port number
+#         is not a security control: the allow-list and your network are.
+#   off   no console site (the console service still runs, unreachable).
+# The gateway speaks plain HTTP here, so put TLS in front of any non-loopback
+# bind: the console's cookies are Secure, which browsers accept over plain
+# HTTP on localhost only (an SSH tunnel to 127.0.0.1 works).
+# The IdP redirect URI of the console is <console origin>/login/callback.
+openctem_admin_site: port
+openctem_admin_host: ''      # host mode only, e.g. admin.example.com; never the app host
+openctem_admin_port: 8443    # port mode; not 80, 443 or openctem_loopback_port
+# Port mode: the address the console port is published on. '' = the gateway's
+# own bind (127.0.0.1). A published port is not filtered by the host firewall:
+# set a private or VPN address only, never a public one.
+openctem_admin_bind: ''
 # Client networks that may reach the console (gateway console site and API).
 # Default: private networks only. Behind Cloudflare the client is the visitor:
 # list your staff's egress ranges, or 0.0.0.0/0 and ::/0 when a Cloudflare

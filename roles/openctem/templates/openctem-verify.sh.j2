@@ -73,5 +73,14 @@ expect 404 "$app" 80 /metrics
 expect 404 "$app" 80 /ready
 expect 404 "$app" 80 /debug/pprof/
 expect 404 "unknown.invalid" 80 /login
-exit "$fail"
 {% endraw %}
+{% if openctem_releases[openctem_version].console_service | default(false) | bool and openctem_admin_site != 'off' %}
+# The platform console's own site answers (403 from a network outside
+# openctem_admin_allowed_cidrs is an answer; 404 or silence is a missing site).
+{% if openctem_admin_site == 'host' %}
+expect '!404' '{{ openctem_admin_host }}' 80 /login
+{% else %}
+expect '!404' "$app" {{ openctem_admin_port }} /login
+{% endif %}
+{% endif %}
+exit "$fail"

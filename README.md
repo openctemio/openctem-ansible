@@ -232,6 +232,14 @@ entrypoints need to drop to their own users), `no-new-privileges`, read-only
 root filesystems where the image allows, memory/CPU/PID limits, health checks,
 `restart: unless-stopped` and rotated logs.
 
+From the release that ships `openctem-console` (`console_service` in
+`versions.yml`), the platform console runs as its own service on its own site
+(recommended in production: its own host name, `openctem_admin_site: host`,
+behind its own Cloudflare Access application; the default is a second port,
+8443, on the loopback ingress). It is never published through the tunnel
+without that zero-trust layer; see
+[docs/self-hosting-with-ansible.md](docs/self-hosting-with-ansible.md#platform-console-as-its-own-service).
+
 ### 3.9 Cloudflare
 
 Follow [docs/CLOUDFLARE-ACCESS.md](docs/CLOUDFLARE-ACCESS.md):
@@ -492,7 +500,7 @@ Read before the first apply of the kit version that lists v0.10.0.
    - `ADMIN_LISTEN_ADDR` and `ADMIN_ALLOWED_CIDRS` are not read by v0.10.0 and
      the release ships no console gateway site; the kit renders them only for a
      release flagged `admin_plane: true` in `versions.yml`, and
-     `scripts/vendor-release.sh` flags none for v0.10.0. Leave `openctem_admin_host` empty (the play stops otherwise);
+     `scripts/vendor-release.sh` flags none for v0.10.0. Leave `openctem_admin_host` empty (the play stops otherwise; the console as its own service is described in docs/self-hosting-with-ansible.md and needs a release flagged `console_service`);
    - there is no `INTERNAL_API_*` variable in v0.10.0;
    - the SMTP variables are removed (platform e-mail is set in the console,
      System > E-mail); the kit never rendered them.

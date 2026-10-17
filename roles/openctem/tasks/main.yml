@@ -25,6 +25,15 @@
     - { path: "{{ openctem_release_root }}/gateway/sensors", mode: '0755' }
     - { path: "{{ openctem_release_root }}/postgres", mode: '0755' }
 
+- name: Console site directory of this release
+  ansible.builtin.file:
+    path: "{{ openctem_release_root }}/gateway/admin"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: openctem_releases[openctem_version].admin_plane | default(false) | bool
+
 - name: Release files (gateway config, least-privilege SQL)
   ansible.builtin.import_tasks: release_files.yml
 
