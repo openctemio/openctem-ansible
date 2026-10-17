@@ -272,7 +272,7 @@ services:
 {% if openctem_job_signer | bool %}
       SIGNER_SOCKET: /run/openctem-signer/signer.sock
 {% endif %}
-    # DB_PASSWORD, REDIS_PASSWORD, APP_ENCRYPTION_KEY, METRICS_TOKEN
+    # DB_PASSWORD, REDIS_PASSWORD, APP_ENCRYPTION_KEY, FINGERPRINT_KEY, METRICS_TOKEN
     env_file:
       - {{ openctem_secrets_dir }}/api.env
     healthcheck:

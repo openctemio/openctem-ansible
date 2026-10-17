@@ -48,9 +48,11 @@
     that:
       - openctem_tenant_creation_mode is not defined
       - openctem_signup_mode in ['disabled', 'domain', 'open']
+      - openctem_api_env.keys() | intersect(openctem_api_env_removed) | list | length == 0
     fail_msg: >-
       openctem_signup_mode must be disabled, domain or open. openctem_tenant_creation_mode is removed:
       admin_only is openctem_signup_mode disabled (the default), self_service is open.
+      openctem_api_env may not set a name the API removed ({{ openctem_api_env_removed }}).
 
 - name: Docker and the compose plugin are installed
   ansible.builtin.command: docker compose version --short
