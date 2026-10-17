@@ -1,0 +1,3 @@
+# Managed by Ansible (roles/infra_console). Console operators raise to root
+# with their OWN password (never NOPASSWD); auditd logs each command.
+%{{ infra_console_operators_group }} ALL=(ALL:ALL) ALL

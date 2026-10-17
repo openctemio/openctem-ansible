@@ -1,0 +1,302 @@
+---
+- name: Install the console, the one-time-code module and the QR printer
+  ansible.builtin.apt:
+    name: "{{ infra_console_packages + ['libpam-google-authenticator', 'qrencode'] + (['tlog'] if infra_console_session_recording | bool else []) }}"
+    state: present
+    install_recommends: false
+    update_cache: true
+    cache_valid_time: 3600
+
+# --- Accounts -----------------------------------------------------------------
+- name: Operators group
+  ansible.builtin.group:
+    name: "{{ infra_console_operators_group }}"
+    system: true
+
+- name: Existing accounts among the operators
+  ansible.builtin.getent:
+    database: passwd
+  check_mode: false
+
+- name: No operator may run sudo without a password (the console would be root at sign-in)
+  ansible.builtin.command:
+    argv: [sudo, -n, -l, -U, "{{ item }}"]
+  loop: "{{ infra_console_operators | select('in', ansible_facts.getent_passwd.keys() | list) | list }}"
+  changed_when: false
+  check_mode: false
+  failed_when: "'NOPASSWD' in infra_console_sudo_list.stdout or infra_console_sudo_list.rc not in [0, 1]"
+  register: infra_console_sudo_list
+  loop_control:
+    label: "{{ item }}"
+
+- name: Operator accounts (no usable password until enrolled, no SSH key)
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: ["{{ infra_console_operators_group }}"]
+    append: true
+    shell: "{{ '/usr/bin/tlog-rec-session' if infra_console_session_recording | bool else '/bin/bash' }}"
+    password: '!'
+    update_password: on_create
+    create_home: true
+  loop: "{{ infra_console_operators }}"
+
+- name: Members of the operators group now
+  ansible.builtin.getent:
+    database: group
+    key: "{{ infra_console_operators_group }}"
+  check_mode: false
+
+- name: Accounts no longer listed leave the group
+  ansible.builtin.command:
+    argv: [gpasswd, -d, "{{ item }}", "{{ infra_console_operators_group }}"]
+  loop: "{{ (ansible_facts.getent_group[infra_console_operators_group][2] | default('')).split(',') | select | difference(infra_console_operators) }}"
+  changed_when: true
+
+- name: One-time-code secrets directory (root only)
+  ansible.builtin.file:
+    path: "{{ infra_console_totp_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Secrets of accounts no longer listed are removed
+  ansible.builtin.find:
+    paths: "{{ infra_console_totp_dir }}"
+    file_type: file
+  register: infra_console_totp_files
+
+- name: Remove those secrets
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: absent
+  loop: "{{ infra_console_totp_files.files | rejectattr('path', 'search', '/(' ~ (infra_console_operators | join('|')) ~ ')$') | list }}"
+  loop_control:
+    label: "{{ item.path }}"
+
+- name: Enrolment command (password and one-time code, on the host only)
+  ansible.builtin.template:
+    src: openctem-console-enroll.sh.j2
+    dest: /usr/local/sbin/openctem-console-enroll
+    owner: root
+    group: root
+    mode: '0750'
+
+# --- Sign-in, sudo, terminal, recording -------------------------------------------
+- name: Console settings directory
+  ansible.builtin.file:
+    path: /etc/cockpit
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Sign-in rules (operators group, password and one-time code)
+  ansible.builtin.template:
+    src: cockpit.pam.j2
+    dest: /etc/pam.d/cockpit
+    owner: root
+    group: root
+    mode: '0644'
+    backup: true
+
+- name: Accounts that never sign in (root, the automation account)
+  ansible.builtin.template:
+    src: disallowed-users.j2
+    dest: /etc/cockpit/disallowed-users
+    owner: root
+    group: root
+    mode: '0644'
+
+- name: Sign-in page notice
+  ansible.builtin.copy:
+    dest: /etc/cockpit/issue.openctem
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      Authorised operators only. Sign-in needs a password and a one-time code;
+      every command is audited{{ ' and terminal sessions are recorded' if infra_console_session_recording | bool else '' }}.
+
+- name: Console settings (origins, this host only, idle sign-out)
+  ansible.builtin.template:
+    src: cockpit.conf.j2
+    dest: /etc/cockpit/cockpit.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart the infrastructure console
+
+- name: Web terminal menu entry removed
+  ansible.builtin.copy:
+    dest: /etc/cockpit/systemd.override.json
+    owner: root
+    group: root
+    mode: '0644'
+    content: |
+      {"tools": {"terminal": null}}
+  when: not (infra_console_terminal | bool)
+
+- name: Web terminal menu entry kept
+  ansible.builtin.file:
+    path: /etc/cockpit/systemd.override.json
+    state: absent
+  when: infra_console_terminal | bool
+
+- name: Operators raise to root with their own password
+  ansible.builtin.template:
+    src: sudoers.j2
+    dest: /etc/sudoers.d/60-openctem-operators
+    owner: root
+    group: root
+    mode: '0440'
+    validate: visudo -cf %s
+  when: infra_console_operator_sudo | bool
+
+- name: No sudo for operators
+  ansible.builtin.file:
+    path: /etc/sudoers.d/60-openctem-operators
+    state: absent
+  when: not (infra_console_operator_sudo | bool)
+
+- name: Session recording settings (journal)
+  ansible.builtin.template:
+    src: tlog-rec-session.conf.j2
+    dest: /etc/tlog/tlog-rec-session.conf
+    owner: root
+    group: root
+    mode: '0644'
+  when: infra_console_session_recording | bool
+
+# --- Audit ----------------------------------------------------------------------
+- name: Operator accounts (for their login uids)
+  ansible.builtin.getent:
+    database: passwd
+  check_mode: false
+
+- name: Login uids of the operators
+  ansible.builtin.set_fact:
+    infra_console_operator_uids: >-
+      {{ infra_console_operators | select('in', ansible_facts.getent_passwd.keys() | list)
+         | map('extract', ansible_facts.getent_passwd) | map(attribute=1) | list }}
+
+- name: Is auditd installed (os baseline)
+  ansible.builtin.stat:
+    path: /usr/sbin/augenrules
+  register: infra_console_augenrules
+
+- name: Audit every operator command and console setting change
+  ansible.builtin.template:
+    src: audit.rules.j2
+    dest: /etc/audit/rules.d/65-openctem-console.rules
+    owner: root
+    group: root
+    mode: '0640'
+  when: infra_console_augenrules.stat.exists and not (infra_console_e2e | bool)
+  notify: Load the console audit rules
+
+# --- TLS, listener, firewall ------------------------------------------------------
+- name: Certificate chain
+  ansible.builtin.copy:
+    src: "{{ infra_console_tls_cert }}"
+    remote_src: true
+    dest: /etc/cockpit/ws-certs.d/90-openctem.cert
+    owner: root
+    group: root
+    mode: '0644'
+  when: infra_console_tls_cert != ''
+  notify: Restart the infrastructure console
+
+- name: Certificate key
+  ansible.builtin.copy:
+    src: "{{ infra_console_tls_key }}"
+    remote_src: true
+    dest: /etc/cockpit/ws-certs.d/90-openctem.key
+    owner: root
+    group: root
+    mode: '0600'
+  when: infra_console_tls_key != ''
+  no_log: true
+  notify: Restart the infrastructure console
+
+- name: Own certificate removed when none is configured (the self-signed one is used)
+  ansible.builtin.file:
+    path: "/etc/cockpit/ws-certs.d/90-openctem.{{ item }}"
+    state: absent
+  loop: [cert, key]
+  when: infra_console_tls_cert == ''
+  notify: Restart the infrastructure console
+
+- name: Listener directory
+  ansible.builtin.file:
+    path: /etc/systemd/system/cockpit.socket.d
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+
+- name: Listen on the one configured address and port only
+  ansible.builtin.template:
+    src: listen.conf.j2
+    dest: /etc/systemd/system/cockpit.socket.d/listen.conf
+    owner: root
+    group: root
+    mode: '0644'
+  notify: Restart the infrastructure console
+
+- name: Firewall
+  ansible.builtin.include_tasks: firewall.yml
+  when: not (infra_console_e2e | bool)
+
+- name: Service
+  when: not (infra_console_e2e | bool)
+  block:
+    - name: Start the console socket at boot and now
+      ansible.builtin.systemd_service:
+        name: cockpit.socket
+        enabled: true
+        state: started
+        daemon_reload: true
+
+    - name: Apply changed settings now
+      ansible.builtin.meta: flush_handlers
+
+    - name: Effective listeners of the console socket
+      ansible.builtin.systemd_service:
+        name: cockpit.socket
+      check_mode: false
+      register: infra_console_listen
+
+    - name: The console listens on the configured address only
+      ansible.builtin.assert:
+        that: infra_console_listen.status.Listen | default('') | trim == infra_console_listen_address ~ ':' ~ infra_console_port ~ ' (Stream)'
+        fail_msg: "cockpit.socket listens on {{ infra_console_listen.status.Listen | default('') }}, not the configured address and port."
+      when: not ansible_check_mode
+
+    - name: Certificate the console serves
+      ansible.builtin.command: /usr/lib/cockpit/cockpit-certificate-ensure --check
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: infra_console_cert
+
+    - name: Fingerprint to compare in the browser
+      ansible.builtin.shell: |
+        set -o pipefail
+        f=$(ls /etc/cockpit/ws-certs.d/*.cert /etc/cockpit/ws-certs.d/*.crt 2>/dev/null | sort | tail -n 1)
+        [ -n "$f" ] && openssl x509 -in "$f" -noout -subject -enddate -fingerprint -sha256
+      args:
+        executable: /bin/bash
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: infra_console_fingerprint
+
+    - name: How to reach the console
+      ansible.builtin.debug:
+        msg:
+          - "URL: https://{{ (infra_console_server_names + [infra_console_listen_address]) | first }}:{{ infra_console_port }}/"
+          - "Reachable from: {{ infra_console_allowed_cidrs if infra_console_listen_address != '127.0.0.1' else 'this host only' }}"
+          - "Certificate: {{ infra_console_cert.stdout_lines | default([]) | join(' ') }}"
+          - "{{ infra_console_fingerprint.stdout_lines | default([]) }}"
+          - "Enrol each operator on the host: sudo openctem-console-enroll <name>"

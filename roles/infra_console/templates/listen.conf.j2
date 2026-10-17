@@ -1,0 +1,6 @@
+# Managed by Ansible (roles/infra_console). The empty line drops the
+# package default (every address, port 9090).
+[Socket]
+ListenStream=
+ListenStream={{ infra_console_listen_address }}:{{ infra_console_port }}
+FreeBind=yes

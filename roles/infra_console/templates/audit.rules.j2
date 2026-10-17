@@ -1,0 +1,9 @@
+## Managed by Ansible (roles/infra_console). Loaded by augenrules.
+## Every command an infrastructure-console operator runs, as themselves or
+## through sudo (the login uid survives sudo).
+{% for uid in infra_console_operator_uids %}
+-a always,exit -F arch=b64 -S execve -F auid={{ uid }} -k infra_console
+{% endfor %}
+-w /etc/cockpit/ -p wa -k infra_console_config
+-w /etc/pam.d/cockpit -p wa -k infra_console_config
+-w /etc/systemd/system/cockpit.socket.d/ -p wa -k infra_console_config

@@ -54,6 +54,26 @@ jobs:
           grep -q 'SIGNUP_MODE: disabled' "$r/compose.yml"
           grep -q '^FINGERPRINT_KEY=' "$r/scripts/openctem-secrets"
           tests/secrets-fingerprint.sh "$r/scripts/openctem-secrets"
+      - name: Rendered infrastructure console (one listener, two factors, operators only, this host only)
+        run: |
+          set -e
+          r="$RUNNER_TEMP/render/infra-console"
+          [ "$(grep -c '^ListenStream=' "$r/listen.conf")" = 2 ]
+          grep -qx 'ListenStream=' "$r/listen.conf"
+          grep -qx 'ListenStream=192.0.2.10:9090' "$r/listen.conf"
+          grep -Eq '^auth +required +pam_succeed_if.so user ingroup openctem-operators' "$r/pam.cockpit"
+          grep -Eq '^auth +required +pam_google_authenticator.so secret=/var/lib/openctem-console/totp/\$\{USER\} user=root$' "$r/pam.cockpit"
+          ! grep -q nullok "$r/pam.cockpit"
+          grep -qx 'Origins = https://192.0.2.10:9090 https://system.example.com:9090' "$r/cockpit.conf"
+          grep -qx 'LoginTo = false' "$r/cockpit.conf"
+          grep -qx 'AllowMultiHost = false' "$r/cockpit.conf"
+          grep -qx 'AllowUnencrypted = false' "$r/cockpit.conf"
+          grep -qx root "$r/disallowed-users"
+          ! grep -q NOPASSWD "$r/sudoers"
+          visudo -cf "$r/sudoers"
+          python3 -c 'import json, sys; d = json.load(open(sys.argv[1])); assert d["log"]["input"] is False' "$r/tlog-rec-session.conf"
+      - name: Infrastructure console safety checks refuse unsafe settings
+        run: tests/infra-console-checks.sh
       - name: shellcheck (rendered scripts and test scripts)
         run: |
           shellcheck -S warning -s bash "$RUNNER_TEMP"/render/scripts/* tests/*.sh scripts/*.sh
@@ -130,3 +150,20 @@ jobs:
       - run: ansible-galaxy collection install -r requirements.yml -p ./collections
       - name: Deploy, idempotence, rollback
         run: tests/role-e2e.sh
+
+  infra-console-e2e:
+    name: Infrastructure console role and sign-in rules on Ubuntu 26.04 (isolated Docker-in-Docker)
+    needs: lint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.13"
+      - run: pip install "$ANSIBLE_CORE"
+      - run: ansible-galaxy collection install -r requirements.yml -p ./collections
+      - name: Apply, idempotence, enrolment, sign-in cases, off-boarding, off switch
+        run: tests/infra-console-e2e.sh

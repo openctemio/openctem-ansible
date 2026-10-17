@@ -19,5 +19,7 @@
   ansible.builtin.import_playbook: playbooks/55-backup.yml
 - name: Monitoring
   ansible.builtin.import_playbook: playbooks/60-monitoring.yml
+- name: Infrastructure console (optional)
+  ansible.builtin.import_playbook: playbooks/65-infra-console.yml
 - name: Audit (read-only)
   ansible.builtin.import_playbook: playbooks/80-audit.yml

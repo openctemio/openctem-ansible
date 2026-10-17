@@ -13,6 +13,7 @@
     - ../roles/cloudflared/defaults/main.yml
     - ../roles/backup/defaults/main.yml
     - ../roles/monitoring/defaults/main.yml
+    - ../roles/infra_console/defaults/main.yml
     - ../versions.yml
     - vars.yml
   vars:
@@ -24,7 +25,7 @@
         path: "{{ render_dir }}/{{ item }}"
         state: directory
         mode: '0755'
-      loop: ['', gateway/modes, scripts]
+      loop: ['', gateway/modes, scripts, infra-console]
 
     - name: Render
       ansible.builtin.template:
@@ -45,6 +46,14 @@
         - { role: backup, src: openctem-restore-common.sh.j2, dest: scripts/restore-common.sh }
         - { role: monitoring, src: openctem-monitor.sh.j2, dest: scripts/openctem-monitor }
         - { role: os_baseline, src: openctem.rules.j2, dest: audit.rules }
+        - { role: infra_console, src: openctem-console-enroll.sh.j2, dest: scripts/openctem-console-enroll }
+        - { role: infra_console, src: cockpit.pam.j2, dest: infra-console/pam.cockpit }
+        - { role: infra_console, src: cockpit.conf.j2, dest: infra-console/cockpit.conf }
+        - { role: infra_console, src: listen.conf.j2, dest: infra-console/listen.conf }
+        - { role: infra_console, src: disallowed-users.j2, dest: infra-console/disallowed-users }
+        - { role: infra_console, src: sudoers.j2, dest: infra-console/sudoers }
+        - { role: infra_console, src: tlog-rec-session.conf.j2, dest: infra-console/tlog-rec-session.conf }
+        - { role: infra_console, src: audit.rules.j2, dest: infra-console/audit.rules }
 
     - name: Project settings file
       ansible.builtin.copy:

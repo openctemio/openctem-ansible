@@ -45,6 +45,7 @@
     ssh_allow_tcp_forwarding: "{{ ssh_devsec_vars.ssh_allow_tcp_forwarding }}"
     ssh_x11_forwarding: "{{ ssh_devsec_vars.ssh_x11_forwarding }}"
     ssh_max_auth_retries: "{{ ssh_devsec_vars.ssh_max_auth_retries }}"
+    ssh_deny_groups: "{{ ssh_devsec_vars.ssh_deny_groups }}"
     # The role's default AuthenticationMethods is publickey only; stage 1
     # keeps password login as the fallback.
     ssh_server_password_login: "{{ ssh_stage | int == 1 }}"

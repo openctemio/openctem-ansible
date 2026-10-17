@@ -5,3 +5,7 @@ openctem_version: v0.9.7
 openctem_ingress: cloudflared
 admin_cidrs: [192.0.2.0/24]
 backup_age_recipient: ''
+infra_console_listen_address: 192.0.2.10
+infra_console_operators: [alice]
+infra_console_operator_uids: [1001]
+infra_console_server_names: [system.example.com]

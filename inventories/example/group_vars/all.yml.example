@@ -40,6 +40,15 @@ backup_keep_days: 14
 # encrypt) as vault_monitoring_webhook_url.
 monitoring_webhook_url: "{{ vault_monitoring_webhook_url | default('') }}"
 
+# --- Infrastructure console (optional, off by default) ------------------------------
+# A web console for the host itself, on one private address, from the networks
+# below only. README: "Infrastructure console".
+# infra_console_listen_address: 198.51.100.20   # a private/VPN address of this host
+# infra_console_port: 9090
+# infra_console_allowed_cidrs: [192.0.2.0/24]   # default: admin_cidrs
+# infra_console_operators: [alice]              # OS accounts for people, never ansible_user
+# infra_console_terminal: false                 # on = every session recorded
+
 # --- Optional ----------------------------------------------------------------------
 # openctem_job_signer: true      # signed sensor jobs (key created on the host)
 # Sizing for 4 vCPU / 7-8 GB is the default; see roles/openctem/defaults/main.yml.
@@ -52,3 +61,4 @@ apply_firewall: false
 apply_openctem: false
 apply_backup: false
 apply_monitoring: false
+apply_infra_console: false

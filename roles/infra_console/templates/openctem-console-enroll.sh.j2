@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Managed by Ansible (roles/infra_console).
+# Enrol (or re-enrol) one infrastructure-console operator, interactively, on
+# this host: sets the account's password and a NEW one-time-code secret, and
+# shows the secret ONCE, on this terminal only. The previous secret stops
+# working. Run it with the operator present:
+#
+#   sudo openctem-console-enroll <operator>
+set -euo pipefail
+umask 077
+group='{{ infra_console_operators_group }}'
+dir='{{ infra_console_totp_dir }}'
+
+die() { echo "openctem-console-enroll: $*" >&2; exit 64; }
+[ "$(id -u)" = 0 ] || die "run it with sudo"
+user="${1:-}"
+[[ "$user" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "usage: openctem-console-enroll <operator>"
+id -- "$user" > /dev/null 2>&1 || die "no account $user (list it in infra_console_operators and apply the role)"
+id -nG -- "$user" | tr ' ' '\n' | grep -qx -- "$group" || die "$user is not in $group (list it in infra_console_operators)"
+# The secret is printed: refuse when this is not a person at a terminal.
+[ -t 0 ] && [ -t 1 ] || die "interactive terminal required (the secret is shown on screen only)"
+
+echo "== Password for $user (typed twice, not shown)"
+passwd -- "$user"
+
+secret="$(python3 -c 'import base64, os; print(base64.b32encode(os.urandom(20)).decode())')"
+install -d -m 0700 -o root -g root -- "$dir"
+tmp="$(mktemp -- "$dir/.enrol.XXXXXX")"
+trap 'rm -f -- "$tmp"' EXIT
+# pam_google_authenticator file: TOTP, 30 s steps, +-1 step of clock skew,
+# each code once, at most 3 sign-in attempts per 30 s.
+printf '%s\n" RATE_LIMIT 3 30\n" WINDOW_SIZE 3\n" DISALLOW_REUSE\n" TOTP_AUTH\n' "$secret" > "$tmp"
+chown root:root -- "$tmp"
+chmod 0400 -- "$tmp"
+mv -f -- "$tmp" "$dir/$user"
+trap - EXIT
+
+issuer="OpenCTEM-$(hostname -s)"
+uri="otpauth://totp/${issuer}:${user}?secret=${secret}&issuer=${issuer}&digits=6&period=30"
+echo
+echo "== Scan this with the operator's authenticator app (shown once):"
+qrencode -t ANSIUTF8 -- "$uri"
+echo "Secret: $secret"
+echo
+echo "Sign in at the infrastructure console with the password and the 6-digit code."
+logger -p authpriv.notice -t openctem-console -- "operator $user enrolled by ${SUDO_USER:-root}"
