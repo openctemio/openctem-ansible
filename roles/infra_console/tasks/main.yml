@@ -1,0 +1,11 @@
+---
+- name: Checks
+  ansible.builtin.import_tasks: checks.yml
+
+- name: Install, harden and start
+  ansible.builtin.include_tasks: present.yml
+  when: infra_console_state == 'present'
+
+- name: Stop and close
+  ansible.builtin.include_tasks: absent.yml
+  when: infra_console_state == 'absent'

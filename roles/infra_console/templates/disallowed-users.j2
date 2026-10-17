@@ -1,0 +1,5 @@
+# Managed by Ansible (roles/infra_console): never sign in to the console.
+root
+{% if (ansible_user | default('root')) != 'root' %}
+{{ ansible_user }}
+{% endif %}

@@ -1,0 +1,19 @@
+---
+# The infrastructure console role's safety checks only, on the CONTROLLER
+# (read-only: facts, one Python address check, stat). Driven by
+# tests/infra-console-checks.sh with one case per run.
+- name: Infrastructure console checks
+  hosts: localhost
+  connection: local
+  gather_facts: true
+  become: false
+  vars:
+    infra_console_e2e: true
+    infra_console_listen_address: 127.0.0.1
+    infra_console_operators: [alice]
+    admin_cidrs: [192.0.2.0/24]
+  tasks:
+    - name: Run the role's checks
+      ansible.builtin.include_role:
+        name: infra_console
+        tasks_from: checks.yml

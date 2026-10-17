@@ -1,0 +1,71 @@
+---
+# Infrastructure console: a web console for the HOST (disks, services, logs,
+# journal), separate from the OpenCTEM web console and from the
+# platform console. Off unless you run playbooks/65-infra-console.yml with
+# apply_infra_console=true.
+#
+# Whoever signs in here can become root on the host (with their own password
+# through sudo). The defaults keep it as small as possible: one private
+# address, admin networks only, a named operators group, a password AND a
+# one-time code, no terminal.
+
+# present: install, harden and start. absent: stop it and remove its firewall
+# rules (packages, accounts and settings stay; see the README to purge).
+infra_console_state: present
+
+# REQUIRED. The one IPv4 address of THIS host the console listens on: a
+# private or VPN address, never a public one and never 0.0.0.0. 127.0.0.1
+# keeps it on the host only (reach it through your own tunnel; the kit's SSH
+# stage turns TCP forwarding off).
+infra_console_listen_address: ''
+infra_console_port: 9090
+# Who may reach the port (ufw). IPv4 CIDRs, not 0.0.0.0/0. Default: the same
+# admin networks as SSH. A VPN range is the usual choice.
+infra_console_allowed_cidrs: "{{ admin_cidrs | default([]) }}"
+# Extra host names browsers use for the console, e.g. system.example.com on
+# your private DNS (the certificate must name them). The listen address is
+# always accepted.
+infra_console_server_names: []
+
+# OS accounts allowed to sign in. Created by the role WITHOUT a usable
+# password or SSH key; each person then enrols on the host with
+#   sudo openctem-console-enroll <name>
+# (sets the password, shows the one-time-code QR once). Never your automation
+# account (ansible_user): people and automation stay separate.
+infra_console_operators: []
+infra_console_operators_group: openctem-operators
+# Members may raise the session to root ("Administrative access") with their
+# own password. Never passwordless: the role refuses NOPASSWD rules for them.
+infra_console_operator_sudo: true
+
+# The web terminal. Off: the menu entry is removed. Hiding it is not a
+# security boundary (a signed-in operator can run commands through the
+# console's own channel); the boundary is who may sign in, the second factor,
+# sudo with a password, and the audit trail below.
+infra_console_terminal: false
+# Record every terminal session of the operators to the system journal. Required when the terminal is on.
+infra_console_session_recording: "{{ infra_console_terminal }}"
+# Record keystrokes too. Off by default: they include passwords typed at
+# prompts that do not echo.
+infra_console_record_input: false
+
+# TLS. Paths ON THE HOST to a PEM certificate chain and its unencrypted key
+# (placed by you, like the tunnel token). Empty: the console's own self-signed
+# certificate; the role prints its SHA-256 fingerprint to compare in the
+# browser.
+infra_console_tls_cert: ''
+infra_console_tls_key: ''
+
+# Sign-out after this many idle minutes (password sessions).
+infra_console_idle_timeout_minutes: 15
+# Concurrent unauthenticated connections: refuse 50% from 3, all from 10.
+infra_console_max_startups: '3:50:10'
+
+# Packages, no recommended extras. cockpit-storaged: disks and file systems.
+infra_console_packages: [cockpit-ws, cockpit-system, cockpit-bridge, cockpit-storaged]
+
+# One-time-code secrets, root-only (operators cannot change or remove theirs).
+infra_console_totp_dir: /var/lib/openctem-console/totp
+
+# Tests only: skip systemd, ufw and auditd (a container has none of them).
+infra_console_e2e: false

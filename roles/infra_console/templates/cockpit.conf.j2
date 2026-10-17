@@ -1,0 +1,25 @@
+# Managed by Ansible (roles/infra_console).
+{% set port = infra_console_port | string %}
+{% set names = [infra_console_listen_address] + infra_console_server_names %}
+{% if infra_console_listen_address == '127.0.0.1' %}{% set names = names + ['localhost'] %}{% endif %}
+{% set schemes = ['https', 'http'] if infra_console_listen_address == '127.0.0.1' else ['https'] %}
+{% set origins = namespace(list=[]) %}
+{% for n in names | unique %}{% for sc in schemes %}{% set origins.list = origins.list + [sc ~ '://' ~ n ~ ':' ~ port] %}{% endfor %}{% endfor %}
+[WebService]
+# Only these browser origins may open the console channel (also refuses a
+# page on a foreign name that resolves to this address).
+Origins = {{ origins.list | join(' ') }}
+# This host only: no sign-in to other machines from here.
+LoginTo = false
+AllowMultiHost = false
+AllowUnencrypted = false
+MaxStartups = {{ infra_console_max_startups }}
+LoginTitle = OpenCTEM host console
+
+[Session]
+IdleTimeout = {{ infra_console_idle_timeout_minutes | int }}
+Banner = /etc/cockpit/issue.openctem
+
+# Password + one-time code only; no Kerberos negotiation.
+[negotiate]
+action = none

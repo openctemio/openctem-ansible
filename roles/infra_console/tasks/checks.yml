@@ -1,0 +1,115 @@
+---
+# Refuse unsafe or incomplete settings before touching the host.
+- name: State is present or absent
+  ansible.builtin.assert:
+    that: infra_console_state in ['present', 'absent']
+    fail_msg: "infra_console_state must be present or absent, not {{ infra_console_state }}."
+
+- name: Settings are complete and safe
+  when: infra_console_state == 'present'
+  block:
+    - name: Addresses of the host's container bridges (never a console address)
+      ansible.builtin.set_fact:
+        infra_console_bridge_ips: >-
+          {{ ansible_facts.interfaces | default([]) | select('match', '^(docker|br-|veth)')
+             | map('regex_replace', '-', '_')
+             | select('in', ansible_facts.keys() | list) | map('extract', ansible_facts) | selectattr('ipv4', 'defined')
+             | map(attribute='ipv4.address') | list }}
+
+    - name: The listen address is one private address of this host
+      ansible.builtin.command:
+        argv:
+          - "{{ ansible_python_interpreter | default('/usr/bin/python3') }}"
+          - -c
+          - |
+            import ipaddress, sys
+            a = sys.argv[1]
+            try:
+                ip = ipaddress.IPv4Address(a)
+            except ValueError:
+                sys.exit('not an IPv4 address: ' + repr(a))
+            host = sys.argv[2].split()
+            bridges = sys.argv[3].split()
+            if ip.is_unspecified:
+                sys.exit('0.0.0.0 listens on every address')
+            if a in bridges:
+                sys.exit('a container bridge address')
+            if not ip.is_loopback:
+                if a not in host:
+                    sys.exit('not an address of this host: ' + ' '.join(host))
+                # Private, VPN (100.64.0.0/10) or link-local: never a global address.
+                if ip.is_global:
+                    sys.exit('a public address')
+          - "{{ infra_console_listen_address }}"
+          - "{{ ansible_facts.all_ipv4_addresses | default([]) | join(' ') }}"
+          - "{{ infra_console_bridge_ips | join(' ') }}"
+      changed_when: false
+      check_mode: false
+
+    - name: Port, networks, operators, terminal and certificate settings
+      ansible.builtin.assert:
+        that:
+          - infra_console_port | int > 0 and infra_console_port | int < 65536
+          - infra_console_port | int != (firewall_ssh_port | default(22)) | int
+          - infra_console_allowed_cidrs | length > 0
+          - infra_console_allowed_cidrs | reject('match', '^([0-9]{1,3}\.){3}[0-9]{1,3}/([0-9]|[12][0-9]|3[0-2])$') | list | length == 0
+          - "'0.0.0.0/0' not in infra_console_allowed_cidrs"
+          - infra_console_server_names | reject('match', '^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$') | list | length == 0
+          - infra_console_operators | length > 0
+          - infra_console_operators | reject('match', '^[a-z_][a-z0-9_-]{0,31}$') | list | length == 0
+          - "'root' not in infra_console_operators"
+          - (ansible_user | default('')) not in infra_console_operators
+          - infra_console_operators_group is match('^[a-z_][a-z0-9_-]{0,31}$')
+          - infra_console_operators_group not in ['sudo', 'adm', 'docker', 'root', 'wheel']
+          - not (infra_console_terminal | bool) or (infra_console_session_recording | bool)
+          - (infra_console_tls_cert == '') == (infra_console_tls_key == '')
+          - infra_console_idle_timeout_minutes | int > 0
+        fail_msg: >-
+          Check: port 1-65535 and not the SSH port; infra_console_allowed_cidrs a non-empty list of IPv4 CIDRs,
+          not 0.0.0.0/0; infra_console_operators a non-empty list of account names without root or the
+          automation account ({{ ansible_user | default('') }}); a dedicated operators group; the terminal only
+          with session recording; certificate and key both set or both empty; an idle timeout above 0.
+
+    - name: The firewall stage is active (the console relies on ufw's default deny)
+      ansible.builtin.command: ufw status
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: infra_console_ufw
+      when: not (infra_console_e2e | bool) and infra_console_listen_address != '127.0.0.1'
+
+    - name: Refuse to open the console without the host firewall
+      ansible.builtin.assert:
+        that: "infra_console_ufw.rc == 0 and 'Status: active' in infra_console_ufw.stdout"
+        fail_msg: 'ufw is not active: apply playbooks/35-firewall.yml first (the console must not listen unfiltered).'
+      when: not (infra_console_e2e | bool) and infra_console_listen_address != '127.0.0.1'
+
+    - name: Effective SSH settings
+      ansible.builtin.command: sshd -T
+      changed_when: false
+      check_mode: false
+      failed_when: false
+      register: infra_console_sshd
+      when: not (infra_console_e2e | bool)
+
+    # SSH asks no one-time code: operators must not get in that way.
+    - name: SSH refuses the operators group
+      ansible.builtin.assert:
+        that: >-
+          infra_console_sshd.stdout_lines
+          | select('match', '^denygroups(\s+\S+)*[\s,]' ~ infra_console_operators_group ~ '(\s|,|$)') | list | length > 0
+        fail_msg: >-
+          sshd does not deny the group {{ infra_console_operators_group }}: apply playbooks/20-ssh.yml with this
+          kit version first (operators would get a password-only SSH login, without the one-time code).
+      when: not (infra_console_e2e | bool)
+
+    - name: The certificate and key exist on the host
+      ansible.builtin.stat:
+        path: "{{ item }}"
+      loop: "{{ [infra_console_tls_cert, infra_console_tls_key] | select | list }}"
+      register: infra_console_tls_files
+
+    - name: Refuse a missing certificate or key
+      ansible.builtin.assert:
+        that: infra_console_tls_files.results | rejectattr('stat.exists') | list | length == 0
+        fail_msg: "Not found on the host: {{ infra_console_tls_files.results | rejectattr('stat.exists') | map(attribute='item') | list }}"

@@ -1,0 +1,41 @@
+---
+# ufw rules for the console, tagged with one comment. Rules for networks no
+# longer listed are deleted; the SSH rules of the firewall role are untouched.
+- name: Console rules in force
+  ansible.builtin.command: ufw show added
+  changed_when: false
+  check_mode: false
+  register: infra_console_ufw_added
+
+- name: Console rules for networks no longer listed
+  ansible.builtin.set_fact:
+    infra_console_ufw_stale: >-
+      {{ infra_console_ufw_added.stdout_lines | select('search', "comment 'openctem-infra-console'")
+         | map('regex_search', 'from \S+ to \S+ port \S+') | select
+         | reject('in', infra_console_ufw_wanted) | list }}
+  vars:
+    infra_console_ufw_wanted: >-
+      {{ (infra_console_allowed_cidrs if infra_console_listen_address != '127.0.0.1' else [])
+         | map('regex_replace', '^(.*)$', 'from \1 to ' ~ infra_console_listen_address ~ ' port ' ~ infra_console_port)
+         | list }}
+
+- name: Delete console rules for networks no longer listed
+  community.general.ufw:
+    rule: allow
+    proto: tcp
+    from_ip: "{{ item.split()[1] }}"
+    to_ip: "{{ item.split()[3] }}"
+    to_port: "{{ item.split()[5] }}"
+    comment: openctem-infra-console
+    delete: true
+  loop: "{{ infra_console_ufw_stale }}"
+
+- name: Allow the console port from each allowed network, to the console address only
+  community.general.ufw:
+    rule: allow
+    proto: tcp
+    from_ip: "{{ item }}"
+    to_ip: "{{ infra_console_listen_address }}"
+    to_port: "{{ infra_console_port | string }}"
+    comment: openctem-infra-console
+  loop: "{{ infra_console_allowed_cidrs if infra_console_listen_address != '127.0.0.1' else [] }}"

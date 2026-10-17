@@ -1,0 +1,27 @@
+---
+# Off switch: nothing listens and no firewall rule stays open. Packages,
+# accounts and settings are kept so that turning it on again is one run.
+- name: Is the console installed
+  ansible.builtin.stat:
+    path: /usr/lib/systemd/system/cockpit.socket
+  register: infra_console_unit
+
+- name: Stop and disable the console
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    state: stopped
+    enabled: false
+  loop: [cockpit.socket, cockpit.service]
+  when: infra_console_unit.stat.exists and not (infra_console_e2e | bool)
+
+- name: Close the firewall
+  ansible.builtin.include_tasks: firewall.yml
+  vars:
+    infra_console_allowed_cidrs: []
+  when: not (infra_console_e2e | bool)
+
+- name: What stays on the host
+  ansible.builtin.debug:
+    msg: >-
+      The console is stopped and its firewall rules are gone. Packages, the operators group and accounts,
+      one-time-code secrets and settings stay; the README (infrastructure console) lists how to purge them.

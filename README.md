@@ -41,6 +41,7 @@ flowchart LR
 7. [Troubleshooting](#7-troubleshooting)
 8. [Security model and hardening checklist](#8-security-model-and-hardening-checklist)
 9. [Repository layout and tests](#9-repository-layout-and-tests)
+10. [Infrastructure console (optional)](#10-infrastructure-console-optional)
 
 Detailed references: [Cloudflare Tunnel and Access](docs/CLOUDFLARE-ACCESS.md) ·
 [Firewall](docs/FIREWALL.md) · [docs site page](docs/self-hosting-with-ansible.md).
@@ -580,6 +581,7 @@ by SHA-256.
 - [ ] Automatic coverage reviewed per organization (Scoping → Settings) and the daily budget set
 - [ ] Backups in age mode, off-host copy configured, restore drill passed
 - [ ] Monitoring timer active, webhook tested (`sudo systemctl start openctem-monitor`)
+- [ ] Infrastructure console: off, or on a private address from admin/VPN networks only, operators enrolled with a one-time code, terminal off or recorded ([§10](#10-infrastructure-console-optional))
 - [ ] Hypervisor-level backups or snapshots of the VM per your policy
 - [ ] Calendar: monthly restore drill, OpenCTEM upgrades, rotation of the tunnel token and the age key yearly
 
@@ -593,23 +595,101 @@ boundary against root on the host.
 ```
 site.yml                 every stage in runbook order (each gated by apply_*)
 playbooks/               00-preflight 10-os 20-ssh 30-docker 35-firewall 50-openctem
-                         55-backup 60-monitoring 71-rollback 80-audit 85-exposure-audit
+                         55-backup 60-monitoring 65-infra-console 71-rollback 80-audit
+                         85-exposure-audit
 roles/                   os_baseline ssh docker firewall openctem cloudflared backup monitoring
+                         infra_console (optional host console)
                          (+ openctem_common: shared defaults, loads versions.yml)
 versions.yml             every pinned version and digest
 requirements.yml         exact collection versions
 inventories/example/     example inventory; copy it outside the repository
 docs/                    Cloudflare, firewall, docs-site page
 scripts/vendor-release.sh   add an OpenCTEM release
-tests/                   render.yml, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
+tests/                   render.yml, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD),
+                         infra-console-checks.sh (refused settings), infra-console-e2e.sh (role + sign-in in DinD)
 ```
 
 Tests never touch your workstation's containers: `tests/smoke.sh` and
 `tests/role-e2e.sh` create one uniquely named Docker-in-Docker container and
 run everything inside it. CI (`.github/workflows/ci.yml`) runs yamllint,
 ansible-lint (production profile), syntax checks, shellcheck, template render
-with `docker compose config`, a gitleaks scan, the smoke test and the roles
-end to end on Ubuntu 26.04.
+with `docker compose config`, a gitleaks scan, the smoke test, the roles
+end to end on Ubuntu 26.04, and the infrastructure console: its refused
+settings, and the role with every sign-in case (pamtester) on Ubuntu 26.04.
+
+## 10. Infrastructure console (optional)
+
+A web console for the **host itself**: disks and file systems, services and
+their logs, the system journal, networking status, accounts. It is separate
+from the OpenCTEM web console (the public host name) and from the platform
+console (`openctem_admin_host`): different port, different accounts, never
+behind the tunnel. Off unless you apply it. The role installs Cockpit from the
+Ubuntu archive (`cockpit-ws`, `cockpit-system`, `cockpit-bridge`,
+`cockpit-storaged`, no recommended extras) and hardens it.
+
+Whoever signs in can become root on the host. The role therefore keeps it as
+small as it can:
+
+| Control | What the role does |
+|---|---|
+| Where it listens | one IPv4 address of this host that you name (`infra_console_listen_address`): a private or VPN address, or `127.0.0.1`. Refuses `0.0.0.0`, public addresses, addresses the host does not have and container bridges. Port `infra_console_port` (9090). |
+| Who reaches it | ufw: the port, to that address only, from `infra_console_allowed_cidrs` (default `admin_cidrs`). Refuses `0.0.0.0/0` and refuses to run while ufw is inactive (apply `35-firewall` first). Never published through the tunnel. |
+| Who signs in | members of `openctem-operators` only, listed in `infra_console_operators`. Root and the automation account (`ansible_user`) are refused; the role will not make the automation account an operator. SSH denies the group (the SSH stage sets `DenyGroups`; the role checks it). |
+| How | the account password **and** a 6-digit one-time code. Secrets are root-only files under `/var/lib/openctem-console/totp`: an operator can neither read nor remove theirs. No secret, no sign-in. 3 attempts per 30 s, each code once. |
+| Root | "Administrative access" through sudo with the operator's **own** password (`infra_console_operator_sudo`). The role refuses an operator with a passwordless sudo rule. |
+| Terminal | off: its menu entry is removed. Turning it on (`infra_console_terminal: true`) requires session recording: every terminal session of the operators is recorded to the journal (`tlog`); keystrokes are not recorded unless `infra_console_record_input: true`. |
+| Audit | auditd logs every command each operator runs (as themselves or through sudo) and every change to the console settings (`ausearch -k infra_console`, `-k infra_console_config`). |
+| Session | sign-out after 15 idle minutes; sign-in to other machines from the console is off; only the configured origins may open the console channel. |
+| TLS | your certificate and key, placed on the host (`infra_console_tls_cert`, `infra_console_tls_key`), or the console's self-signed certificate: the play prints its SHA-256 fingerprint to compare in the browser. |
+
+Hiding the terminal is not a security boundary: a signed-in operator can run
+commands through the console's own channel. The boundary is who may sign in,
+the second factor, sudo with a password, and the audit trail.
+
+**Enable.** In your inventory:
+
+```yaml
+infra_console_listen_address: 198.51.100.20   # a private/VPN address of this host
+infra_console_allowed_cidrs: [198.51.100.0/24] # your VPN or admin network
+infra_console_operators: [alice]
+# infra_console_server_names: [system.example.com]   # name on your private DNS (in the certificate)
+# infra_console_tls_cert: /etc/ssl/openctem-system/fullchain.pem
+# infra_console_tls_key: /etc/ssl/openctem-system/privkey.pem
+```
+
+```bash
+ansible-playbook -i $INV playbooks/65-infra-console.yml -K --check --diff -e apply_infra_console=true
+ansible-playbook -i $INV playbooks/65-infra-console.yml -K -e apply_infra_console=true
+```
+
+**Enrol each operator** on the host, with the person present (SSH as your
+admin account, or the hypervisor console). It sets the password and shows the
+one-time-code QR once, on that terminal only; nothing passes through Ansible:
+
+```bash
+sudo openctem-console-enroll alice
+```
+
+Run it again to reset a lost phone or password (the old code stops working).
+Operators sign in to the console only: the SSH stage denies their group
+(`DenyGroups`, SSH asks no one-time code), and the role refuses to run until
+`sshd` does.
+
+**Off-board.** Remove the name from `infra_console_operators` and apply: the
+account leaves the group and its one-time-code secret is deleted. Lock or
+delete the OS account yourself if it is no longer needed (`sudo usermod -L`).
+
+**Recordings** (terminal on): `journalctl -t tlog-rec-session` lists them;
+`sudo tlog-play -r journal -M TLOG_REC=<id>` replays one. Recordings on the
+host can be changed by root: ship the journal off the host when they must be
+evidence.
+
+**Turn it off.** `-e infra_console_state=absent`: the console stops and its
+firewall rules are removed; packages, accounts and settings stay. To purge:
+`sudo apt purge cockpit-ws cockpit-system cockpit-bridge cockpit-storaged`,
+then delete the operator accounts, `/var/lib/openctem-console`,
+`/etc/sudoers.d/60-openctem-operators` and
+`/etc/audit/rules.d/65-openctem-console.rules`.
 
 License: [Apache-2.0](LICENSE). Security reports: [SECURITY.md](SECURITY.md).
 Contributions: [CONTRIBUTING.md](CONTRIBUTING.md).

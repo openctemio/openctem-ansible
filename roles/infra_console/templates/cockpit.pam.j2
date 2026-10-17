@@ -1,0 +1,25 @@
+#%PAM-1.0
+# Managed by Ansible (roles/infra_console). Sign-in to the infrastructure
+# console: members of {{ infra_console_operators_group }} only, password AND
+# one-time code, root and the automation account refused.
+auth       required     pam_sepermit.so
+# Group check first, failure reported only at the end: the prompts are the
+# same for every name, so they do not tell which accounts exist.
+auth       required     pam_succeed_if.so user ingroup {{ infra_console_operators_group }} quiet_success
+auth       substack     common-auth
+# Second factor from a root-only secret; no secret file means no sign-in.
+auth       required     pam_google_authenticator.so secret={{ infra_console_totp_dir }}/${USER} user=root
+account    required     pam_listfile.so item=user sense=deny file=/etc/cockpit/disallowed-users onerr=fail
+account    required     pam_succeed_if.so user ingroup {{ infra_console_operators_group }} quiet_success
+account    required     pam_nologin.so
+account    include      common-account
+password   include      common-password
+# pam_selinux.so close should be the first session rule
+session    required     pam_selinux.so close
+# The login uid ties every command of the session to the operator (auditd).
+session    required     pam_loginuid.so
+session    required     pam_selinux.so open env_params
+session    optional     pam_keyinit.so force revoke
+session    include      common-session
+session    required     pam_env.so
+session    required     pam_env.so user_readenv=1 envfile=/etc/default/locale

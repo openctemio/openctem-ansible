@@ -10,3 +10,6 @@ ssh_devsec_vars:
   ssh_allow_tcp_forwarding: 'no'
   ssh_x11_forwarding: false
   ssh_max_auth_retries: 3
+  # Infrastructure console operators sign in to the console only (password +
+  # one-time code), never over SSH, where the second factor is not asked.
+  ssh_deny_groups: "{{ infra_console_operators_group | default('openctem-operators') }}"

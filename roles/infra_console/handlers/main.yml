@@ -1,0 +1,20 @@
+---
+- name: Restart the infrastructure console
+  ansible.builtin.systemd_service:
+    name: cockpit.socket
+    state: restarted
+    daemon_reload: true
+  when: not (infra_console_e2e | bool)
+  notify: Stop the running console instance
+
+# Running sessions keep the old settings until cockpit.service restarts.
+- name: Stop the running console instance
+  ansible.builtin.systemd_service:
+    name: cockpit.service
+    state: stopped
+  when: not (infra_console_e2e | bool)
+
+# auditd refuses systemctl restart (RefuseManualStop); augenrules loads rules.
+- name: Load the console audit rules
+  ansible.builtin.command: augenrules --load
+  changed_when: true
