@@ -176,13 +176,44 @@ Security → **WAF → Rate limiting rules → Create rule** (zone of your domai
 - Characteristics: **IP**.
 - Rate: Free plan allows one rule with a 10-second period: **200 requests per
   10 seconds**, then **Block for 10 seconds**. On Pro or higher, make two rules:
-  sensors at 1200 requests per minute per IP, and the CI exchange at 60 per
-  minute per IP, each blocking for 10 minutes.
+  sensors at 1200 requests per minute per IP, and the CI exchange at 600 per
+  minute per IP, each blocking for 10 minutes. Hosted CI runners (GitLab.com
+  shared runners, GitHub-hosted runners) put many customers behind one egress
+  address, so a strict per-IP edge limit on the exchange throttles every
+  organization at once; the API limits the exchange per organization and
+  token issuer behind it (60 a minute) and per address (600 a minute).
 - Many sensors behind one NAT address share a budget: raise the sensor rate
   when you run more than about 50 sensors behind one address.
 
 The API applies its own per-sensor, per-run and per-address limits behind
 these.
+
+## Client address (audit log and per-address limits)
+
+The Cloudflare edge sets `Cf-Connecting-Ip` to the visitor's address and
+appends it to `X-Forwarded-For`; `cloudflared` passes both through unchanged
+and adds no address of its own. The kit sets the gateway to believe
+`Cf-Connecting-Ip` only from cloudflared's fixed address
+(`OPENCTEM_TRUSTED_PROXIES=172.30.81.10/32`,
+`OPENCTEM_CLIENT_IP_HEADERS=Cf-Connecting-Ip`); from any other container the
+header is ignored and dropped. The gateway hands the API the one resolved
+address, which the audit log (`actor_ip`), sign-in throttling, the CI token
+exchange limit and organization IP allowlists use.
+
+If the API sees the tunnel connector (`172.30.81.10`) as every client, the
+gateway image predates that fix: deploy a release that has it (`versions.yml`)
+and re-run `playbooks/50-openctem.yml`. Check what the API sees:
+
+```bash
+rid=check-$RANDOM
+curl -s -o /dev/null -H "X-Request-ID: $rid" https://ctem.example.com/api/v2/sensor/hello
+sudo docker compose -p openctem -f /opt/openctem/compose.yml -f /opt/openctem/compose.cloudflared.yml \
+  logs --since 2m api | grep -F "\"request_id\":\"$rid\"" | grep -o '"client_ip":"[^"]*"'
+# "client_ip":"<your public address>"   (not 172.30.x.x)
+```
+
+The monitor makes the same request every five minutes and alerts when the
+API's `client_ip` is an internal address.
 
 ## 5. Zone settings that matter for OpenCTEM
 
@@ -228,11 +259,13 @@ curl -m 5 http://HOST_ADDRESS:80/ ; curl -m 5 -k https://HOST_ADDRESS:443/   # c
 | A sensor enrolled with `https://ctem.example.com` | heartbeats; shows Online in Sensors |
 | A CI pipeline with the OpenCTEM CI action, URL `https://ctem.example.com` | exchange + upload succeed |
 | > rate limit from one address on a bypassed path | 429 from Cloudflare |
+| Request with `X-Request-ID: <id>` to `/api/v2/sensor/hello`, then the API log line for `<id>` | `client_ip` is your public address ([Client address](#client-address-audit-log-and-per-address-limits)) |
 | Host address, any port, from LAN or internet | refused (no published port) |
 
 The host's monitor (`playbooks/60-monitoring.yml`) repeats the first and the
 sensor checks every five minutes and alerts when Access stops challenging the
-console, or when the sensor path stops reaching the API.
+console, when the sensor path stops reaching the API, or when the API sees an
+internal address instead of the visitor's.
 
 ## Rollback
 
