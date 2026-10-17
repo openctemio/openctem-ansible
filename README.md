@@ -511,9 +511,10 @@ v0.10.1 too.
    - sensors over mTLS (`api:9443`, passed through by the gateway at layer 4)
      are off in the kit's gateway (`sensors/off.wrappers`); enrolling sensors
      needs a kit change of its own;
-   - behind Cloudflare, set `OPENCTEM_CLIENT_IP_HEADERS` as described in
-     docs/CLOUDFLARE-ACCESS.md: only v0.10.1's gateway reads it (v0.9.7's
-     ignores it);
+   - the kit sets `OPENCTEM_CLIENT_IP_HEADERS=Cf-Connecting-Ip` on the gateway
+     (visitor address behind the tunnel, docs/CLOUDFLARE-ACCESS.md); only
+     v0.10.1's gateway reads it (v0.9.7's ignores it, so the API sees the
+     tunnel's address there);
    - there is no `INTERNAL_API_*` variable in v0.10.0;
    - the SMTP variables are removed (platform e-mail is set in the console,
      System > E-mail); the kit never rendered them.
