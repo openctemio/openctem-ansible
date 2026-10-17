@@ -121,10 +121,18 @@ Zero Trust → **Access → Applications → Add an application → Self-hosted*
 
 ### The platform console's host name
 
-With `openctem_admin_host` set, create a second Access application for that
-host name with a policy for your platform administrators only (hardware-key
-MFA where your identity provider offers it). Never add a Bypass rule for it:
-no machine calls the console.
+With `openctem_admin_site: host` and `openctem_admin_host` set (the
+recommended production setup, see docs/self-hosting-with-ansible.md), create a
+second Access application for that host name with a policy for your platform
+administrators only (hardware-key MFA where your identity provider offers it).
+Never add a Bypass rule for it: no machine calls the console.
+
+**The console must never be published through a public tunnel without this
+Access application.** It is another origin and process than the web console
+(served at the root of its host, no `/admin` path); Access is the zero-trust
+layer in front of it, and the gateway's allow-list (`openctem_admin_allowed_cidrs`)
+must then admit the visitors Access lets through. Port mode
+(`openctem_admin_site: port`) is not published through the tunnel at all.
 
 ## 3. Access Bypass applications for machines
 

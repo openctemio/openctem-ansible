@@ -9,6 +9,16 @@
 # signature (identity: docker-publish.yml at that tag) before it is pulled.
 # Keep the previous release here: rollback deploys it. The job signer runs
 # from the api image (same digest).
+#
+# Release flags (omit when false):
+#   admin_plane: true      the release ships the console API listener and the gateway's console site files
+#   console_db_role: true  the release's least-privilege SQL knows the console's database role
+#   console_service: true  the release ships the platform console as its own service: image
+#                          ghcr.io/openctemio/openctem-console (add a `console:` digest next to the other
+#                          images; it is cosign-verified like them) and gateway/servers.common.
+#                          The roles then render a `console` service and the gateway's console site
+#                          (openctem_admin_site). No released version has it yet: the release that
+#                          ships openctem-console (openctem #2443) sets it, via scripts/vendor-release.sh.
 openctem_releases:
   v0.9.7:
     api: ghcr.io/openctemio/openctem-api@sha256:7986db7e74f0caf633f6df59b7089c5334e62cf5ba27bcbf0f463be23367cf00

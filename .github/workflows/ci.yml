@@ -46,6 +46,8 @@ jobs:
           done
       - name: Render the templates
         run: ansible-playbook tests/render.yml -e render_dir="$RUNNER_TEMP/render"
+      - name: Platform console as its own service (fixture release, site modes, validation)
+        run: tests/console.sh "$RUNNER_TEMP/console"
       - name: Rendered settings (FINGERPRINT_KEY, SIGNUP_MODE, no TENANT_CREATION_MODE)
         run: |
           set -e

@@ -22,7 +22,8 @@
       - "{{ openctem_cosign_issuer }}"
       - --output
       - text
-  loop: "{{ openctem_releases[openctem_version] | dict2items }}"
+  # Images only: the release's flags (admin_plane, console_service, ...) are not images.
+  loop: "{{ openctem_releases[openctem_version] | dict2items | selectattr('key', 'in', ['api', 'web', 'gateway', 'migrations', 'console']) | list }}"
   loop_control:
     label: "{{ item.key }}"
   changed_when: false
