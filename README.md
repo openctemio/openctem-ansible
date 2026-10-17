@@ -213,7 +213,7 @@ What it does, in order:
    here, verified against `SHA256SUMS` on the controller);
 3. **generates every secret on the host** (`/usr/local/sbin/openctem-secrets`,
    `openssl rand`): database superuser, migrator and app passwords, Redis
-   password, `APP_ENCRYPTION_KEY`, metrics token. Files are 0400 in
+   password, `APP_ENCRYPTION_KEY`, `FINGERPRINT_KEY`, metrics token. Files are 0400 in
    `/opt/openctem/secrets` (0700, root). Values never leave the host or reach
    Ansible output; a second run changes nothing;
 4. **verifies every OpenCTEM image digest** with cosign against the release
@@ -231,6 +231,14 @@ Containers run with `cap_drop: ALL` (Postgres and Redis keep only what their
 entrypoints need to drop to their own users), `no-new-privileges`, read-only
 root filesystems where the image allows, memory/CPU/PID limits, health checks,
 `restart: unless-stopped` and rotated logs.
+
+From the release that ships `openctem-console` (`console_service` in
+`versions.yml`), the platform console runs as its own service on its own site
+(recommended in production: its own host name, `openctem_admin_site: host`,
+behind its own Cloudflare Access application; the default is a second port,
+8443, on the loopback ingress). It is never published through the tunnel
+without that zero-trust layer; see
+[docs/self-hosting-with-ansible.md](docs/self-hosting-with-ansible.md#platform-console-as-its-own-service).
 
 ### 3.9 Cloudflare
 
@@ -447,6 +455,84 @@ an older API runs on the newer schema (tested: v0.9.6 on the v0.9.7 schema).
 Migrations are not reversed. If the previous release misbehaves on the
 migrated database, restore the pre-upgrade backup with `openctem-restore`
 while the previous release runs.
+
+### 6.1 Upgrading to v0.10.1 (v0.10.0)
+
+Read before the first apply of the kit version that lists v0.10.1. v0.10.0 was
+tagged but its images were never published, so the kit does not list it: go
+from v0.9.x straight to v0.10.1. Everything below that says v0.10.0 holds for
+v0.10.1 too.
+
+1. **`FINGERPRINT_KEY` is required** (at least 32 characters). It keys the
+   fingerprint of every stored secret finding. The kit manages it on the host
+   like the encryption key (`/opt/openctem/secrets/fingerprint_key`, 0400,
+   root, never printed, never in Ansible output):
+   - on an **existing install** the first apply copies the stored
+     `app_encryption_key` into `fingerprint_key`, because that is the key the
+     existing fingerprints were made with. It never generates a new random one
+     for an install that already has an encryption key: a different value gives
+     every known secret a new identity and reopens each as a new finding;
+   - a **new install** gets its own random key, independent of the encryption
+     key;
+   - the play refuses to deploy while the file is missing, shorter than 32
+     characters or not 0400. Never set `FINGERPRINT_KEY` through
+     `openctem_api_env` (refused);
+   - back it up with the database: `openctem-backup` includes it, and
+     `openctem-restore --with-secrets` restores it (a backup taken before this
+     kit version has none: this server's stays).
+   - Verify after the apply: `sudo stat -c '%a %U %s' /opt/openctem/secrets/fingerprint_key`
+     prints `400 root 65` (or more), and
+     `sudo cmp /opt/openctem/secrets/fingerprint_key /opt/openctem/secrets/app_encryption_key`
+     is silent on an upgraded install (identical). Do not print either file.
+2. **`TENANT_CREATION_MODE` is gone** (the API refuses to start while it is
+   set). The kit never renders it; `openctem_signup_mode` (default `disabled`)
+   becomes `SIGNUP_MODE`. `openctem_api_env` refuses `TENANT_CREATION_MODE` and
+   the other names v0.10.0 removed (`openctem_api_env_removed`). If your
+   inventory still sets `openctem_tenant_creation_mode`, remove it (the play
+   already stops on it).
+3. **Other v0.10.0 settings, checked against the release's environment
+   registry** (`api/internal/config/env_registry.yaml`):
+   - the other variables required in production (`DB_PASSWORD`,
+     `REDIS_PASSWORD`, `REDIS_TLS_ENABLED`, `APP_ENCRYPTION_KEY`,
+     `DB_SSLMODE`, `AUTH_COOKIE_SECURE`) are already set by the kit;
+   - `ADMIN_AUDIT_SINK_SECRET` is needed only with an `https://`
+     `ADMIN_AUDIT_SINK`, which the kit does not configure; the kit has no
+     `ADMIN_AUDIT_SINK_TOKEN`. Do not add either through `openctem_api_env`:
+     secret-looking names are refused, so configure a sink only outside the
+     kit and plan a secret file for it first;
+   - v0.10.1 ships the platform console as its own service (image
+     `openctem-console`, cosign-verified with the other images) and the
+     gateway's console site, so `versions.yml` flags it `admin_plane`,
+     `console_db_role` and `console_service`. The kit renders the `console`
+     service, `ADMIN_LISTEN_ADDR` and `ADMIN_ALLOWED_CIDRS` for it. Leave
+     `openctem_admin_host` empty unless you set up the console host (behind
+     Cloudflare Access, docs/CLOUDFLARE-ACCESS.md; see
+     docs/self-hosting-with-ansible.md);
+   - sensors over mTLS (`api:9443`, passed through by the gateway at layer 4)
+     are off in the kit's gateway (`sensors/off.wrappers`); enrolling sensors
+     needs a kit change of its own;
+   - behind Cloudflare, set `OPENCTEM_CLIENT_IP_HEADERS` as described in
+     docs/CLOUDFLARE-ACCESS.md: only v0.10.1's gateway reads it (v0.9.7's
+     ignores it);
+   - there is no `INTERNAL_API_*` variable in v0.10.0;
+   - the SMTP variables are removed (platform e-mail is set in the console,
+     System > E-mail); the kit never rendered them.
+4. **Database role for the console.** The v0.10.1 least-privilege SQL has the
+   console identity role (`admin_user`; v0.9.7's has none), so
+   `scripts/vendor-release.sh` flags the release `console_db_role: true` and the
+   kit renders `DB_ADMIN_USER`/`DB_ADMIN_PASSWORD` for it. The password
+   (`db_console_password`) is already generated on every install. This path has
+   not run on a live release before: check that `openctem-verify` passes and
+   the API starts after the upgrade.
+5. Take the usual pre-upgrade backup (the play does), then:
+
+```bash
+git pull
+ansible-playbook -i $INV playbooks/50-openctem.yml -K -e apply_openctem=true -e openctem_version=v0.10.1
+```
+
+Rollback to v0.9.7 keeps working (an older API ignores `FINGERPRINT_KEY`);
+see the rollback notes below.
 
 ## 7. Troubleshooting
 

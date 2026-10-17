@@ -1,0 +1,50 @@
+---
+# Settings of the platform console site (checks.yml imports this; tests/console.sh
+# runs it alone, with the role defaults and versions.yml).
+- name: The platform console settings are valid
+  ansible.builtin.assert:
+    that:
+      - openctem_admin_site in ['port', 'host', 'off']
+      - openctem_admin_host is string
+      - openctem_admin_host == '' or openctem_admin_host is match('^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$')
+      - openctem_admin_host != openctem_app_host
+      - openctem_admin_port is number or openctem_admin_port is match('^[0-9]{1,5}$')
+      - openctem_admin_bind is string
+      - openctem_admin_bind == '' or openctem_admin_bind is match('^([0-9]{1,3}[.]){3}[0-9]{1,3}$') or openctem_admin_bind is match('^[0-9a-fA-F:]+$')
+      - openctem_admin_allowed_cidrs | length > 0
+      - openctem_admin_allowed_cidrs | reject('match', '^[0-9a-fA-F:.]+(/[0-9]{1,3})?$') | list | length == 0
+    fail_msg: >-
+      openctem_admin_site must be port, host or off; openctem_admin_host empty or a bare host name other
+      than openctem_app_host; openctem_admin_port a port number; openctem_admin_bind empty or an IP address;
+      openctem_admin_allowed_cidrs a non-empty list of IP addresses or CIDRs.
+
+- name: The release has the console plane when its own host name is asked for
+  ansible.builtin.assert:
+    that: openctem_releases[openctem_version].admin_plane | default(false) | bool
+    fail_msg: >-
+      openctem_admin_host needs a release with the console plane (versions.yml: admin_plane: true);
+      {{ openctem_version }} serves the console on {{ openctem_app_host }}. Unset openctem_admin_host or upgrade.
+  when: openctem_admin_host | length > 0
+
+- name: The console service release ships the console plane
+  ansible.builtin.assert:
+    that: openctem_releases[openctem_version].admin_plane | default(false) | bool
+    fail_msg: '{{ openctem_version }} is flagged console_service but not admin_plane in versions.yml.'
+  when: openctem_releases[openctem_version].console_service | default(false) | bool
+
+- name: The console site settings fit the release's console service
+  ansible.builtin.assert:
+    that:
+      - openctem_admin_site != 'host' or openctem_admin_host | length > 0
+      - openctem_admin_site == 'host' or openctem_admin_host | length == 0
+      - openctem_admin_site != 'port' or (openctem_admin_port | int >= 1 and openctem_admin_port | int <= 65535)
+      - openctem_admin_site != 'port' or (openctem_admin_port | int) not in [80, 443]
+      - openctem_admin_site != 'port' or openctem_ingress == 'loopback'
+      - openctem_admin_site != 'port' or openctem_ingress != 'loopback' or (openctem_admin_port | int) != (openctem_loopback_port | int)
+    fail_msg: >-
+      openctem_admin_site=host needs openctem_admin_host (e.g. admin.example.com), and openctem_admin_host is
+      only for host mode (set openctem_admin_site: host to keep your console on its own host name).
+      openctem_admin_site=port needs openctem_ingress: loopback (a container on the internal tunnel network
+      publishes no port; with cloudflared use host or off), a port from 1 to 65535 that is not 80, 443 or
+      openctem_loopback_port. Never publish the console through a tunnel without a zero-trust application.
+  when: openctem_releases[openctem_version].console_service | default(false) | bool

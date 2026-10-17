@@ -67,27 +67,75 @@ stage changes, backups and restore, upgrades with automatic rollback,
 troubleshooting (including Ubuntu 26.04's uutils coreutils and Docker with
 ufw) and a hardening checklist.
 
-## Platform console on its own host name
+## Platform console as its own service
 
-From the release that ships the console plane (`admin_plane: true` in
-`versions.yml`), the API serves the platform console's API only on an
-internal listener (`ADMIN_LISTEN_ADDR`, the API's fixed address on the origin
-network), and you can give the console its own host name:
+From a release flagged `console_service: true` in `versions.yml` (the release
+that ships the `openctem-console` image; no released version has it yet, and
+older releases keep today's behaviour), the platform console is its own
+service: another image, another process and another origin than the web
+console, at the **root** of its site (there is no `/admin` path). A flaw in a
+tenant-facing page cannot reach the administration plane, and the main host
+name answers 404 for the console. The gateway serves the console only to
+`openctem_admin_allowed_cidrs` (private networks by default); the API keeps
+the console API on an internal listener nothing publishes.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `openctem_admin_site` | `port` | `host`, `port` or `off` |
+| `openctem_admin_host` | `''` | the console's host name, host mode only (e.g. `admin.example.com`) |
+| `openctem_admin_port` | `8443` | port mode; not 80, 443 or `openctem_loopback_port` |
+| `openctem_admin_bind` | `''` | port mode: the address the port is published on; `''` = the gateway's own bind (`127.0.0.1`) |
+| `openctem_admin_allowed_cidrs` | private networks | client networks that may reach the console |
+
+**Host mode is the recommended production setup**: the console on its own
+host name, through the tunnel, behind its own Cloudflare Access application
+(administrators only, hardware-key MFA where your identity provider offers it,
+no Bypass rule):
 
 ```yaml
-openctem_admin_host: admin.ctem.example.com
+openctem_admin_site: host
+openctem_admin_host: admin.example.com
 openctem_admin_allowed_cidrs: [203.0.113.0/24]   # your staff's egress ranges
 ```
 
-The gateway then serves the console only on that name, the web console serves
-it nowhere else, and `https://<openctem_app_host>/admin` answers 404.
-`roles/cloudflared` adds the host name to the tunnel; give it its own
-Cloudflare Access application (CLOUDFLARE-ACCESS.md, section 2) with your
-administrators only. Behind Cloudflare the client address is the visitor's, so
-the default allow-list (private networks only) blocks every visitor: list your
-staff's ranges, or `0.0.0.0/0` and `::/0` when the Access application is the
-gate. With an older release `openctem_admin_host` is refused and the console
-stays on the main host name.
+`roles/cloudflared` adds the host name to the tunnel (CLOUDFLARE-ACCESS.md,
+section 2). **Never publish the console through a public tunnel without that
+zero-trust layer.** Behind Cloudflare the client address is the visitor's, so
+the default allow-list blocks every visitor: list your staff's ranges, or
+`0.0.0.0/0` and `::/0` when the Access application is the gate.
+
+**Port mode is the default, for simplicity**: the console on a second port
+(`8443`, configurable) of the host. A port number is not a security control;
+the allow-list and your network are. The gateway publishes it, so port mode
+needs `openctem_ingress: loopback` (a container on the tunnel's internal
+network publishes nothing: with the tunnel use host mode or `off`), and it is
+never routed through the tunnel. The port binds to `127.0.0.1` unless you set
+`openctem_admin_bind` to a private or VPN address; a published port bypasses
+the host firewall, so never a public address, and
+`playbooks/85-exposure-audit.yml` flags any non-loopback bind (list the
+gateway in `exposure_allowed_containers` after review). The gateway speaks plain
+HTTP here and the console's cookies are `Secure`, so reach it through a TLS
+proxy, or through an SSH tunnel to `127.0.0.1:8443` (browsers accept Secure
+cookies on localhost).
+
+The identity provider of the console redirects to
+`<console origin>/login/callback` (for example
+`https://admin.example.com/login/callback`).
+
+`openctem-verify` checks that the console's site answers. `openctem_admin_site:
+off` runs the service without a site.
+
+**Upgrade notes.** `openctem_admin_host` set with the default site would
+silently move the console to a port, so the play stops: set
+`openctem_admin_site: host`. The default `port` with the tunnel ingress also
+stops the play with the reason. The console's old `/admin` URL and the web
+console's `ADMIN_API_URL` are gone with the release. Sensors keep dialing the
+main host on 443; the kit does not render the sensor ALPN/passthrough settings
+(`SENSOR_MTLS_*`): they need a gateway that terminates TLS, and the kit's
+gateway speaks plain HTTP behind the tunnel or your proxy.
+
+With an older release the console settings above are ignored; only
+`openctem_admin_host` (a release with `admin_plane`) is honoured as before.
 
 ## The console's own database role
 

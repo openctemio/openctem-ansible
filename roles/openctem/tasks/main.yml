@@ -25,6 +25,15 @@
     - { path: "{{ openctem_release_root }}/gateway/sensors", mode: '0755' }
     - { path: "{{ openctem_release_root }}/postgres", mode: '0755' }
 
+- name: Console site directory of this release
+  ansible.builtin.file:
+    path: "{{ openctem_release_root }}/gateway/admin"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: openctem_releases[openctem_version].admin_plane | default(false) | bool
+
 - name: Release files (gateway config, least-privilege SQL)
   ansible.builtin.import_tasks: release_files.yml
 
@@ -57,6 +66,25 @@
     - { name: redis.conf, uid: '999', gid: '1000' }
     - { name: db_superuser_password, uid: '999', gid: '999' }
   no_log: true
+  when: not ansible_check_mode
+
+- name: The fingerprint key exists on the server (required since v0.10.0)
+  ansible.builtin.stat:
+    path: "{{ openctem_secrets_dir }}/fingerprint_key"
+  register: openctem_fingerprint_key
+  when: not ansible_check_mode
+
+- name: Refuse to deploy without the fingerprint key
+  ansible.builtin.assert:
+    that:
+      - openctem_fingerprint_key.stat.exists
+      - openctem_fingerprint_key.stat.size | int >= 32
+      - openctem_fingerprint_key.stat.mode == '0400'
+    fail_msg: >-
+      {{ openctem_secrets_dir }}/fingerprint_key is missing, shorter than 32 characters or not mode 0400.
+      The API (v0.10.0 and later) refuses to start without FINGERPRINT_KEY. Run openctem-secrets on the
+      server: it copies the encryption key into it on an existing install, and generates a key on a new one.
+      Never replace it with a new random value on an install that stores secret findings.
   when: not ansible_check_mode
 
 - name: Verify image signatures

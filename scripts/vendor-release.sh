@@ -33,6 +33,14 @@ if [ -f "$src/gateway/admin/on.site" ]; then
   cp "$src/gateway/modes/http.admin" "$dest/gateway/modes/"
   sums+=(gateway/admin/off.site gateway/admin/off.tenant gateway/admin/on.site gateway/admin/on.tenant gateway/modes/http.admin)
 fi
+# The console as its own service (image openctem-console) shares the gateway's
+# server settings with the main site; the release flags then console_service.
+console_service=false
+if [ -f "$src/gateway/servers.common" ]; then
+  console_service=true
+  cp "$src/gateway/servers.common" "$dest/gateway/"
+  sums+=(gateway/servers.common)
+fi
 # The console's own database role (the bootstrap script knows admin_user).
 console_db_role=false
 if grep -qF ':{?admin_user}' "$src/postgres/least-privilege-roles.sql"; then
@@ -43,8 +51,11 @@ echo "vendored into $dest"
 echo "openctem_releases entry (verify each with cosign before committing):"
 echo "  $tag:"
 [ "$admin_plane" = false ] || echo "    admin_plane: true"
+[ "$console_service" = false ] || echo "    console_service: true"
 [ "$console_db_role" = false ] || echo "    console_db_role: true"
-for name in openctem-api openctem-web openctem-gateway migrations; do
+names=(openctem-api openctem-web openctem-gateway migrations)
+[ "$console_service" = false ] || names+=(openctem-console)
+for name in "${names[@]}"; do
   d="$(docker buildx imagetools inspect "ghcr.io/openctemio/$name:$tag" --format '{{json .Manifest.Digest}}' | tr -d '"')"
   key="${name#openctem-}"
   echo "    $key: ghcr.io/openctemio/$name@$d"
