@@ -456,9 +456,12 @@ Migrations are not reversed. If the previous release misbehaves on the
 migrated database, restore the pre-upgrade backup with `openctem-restore`
 while the previous release runs.
 
-### 6.1 Upgrading to v0.10.0
+### 6.1 Upgrading to v0.10.1 (v0.10.0)
 
-Read before the first apply of the kit version that lists v0.10.0.
+Read before the first apply of the kit version that lists v0.10.1. v0.10.0 was
+tagged but its images were never published, so the kit does not list it: go
+from v0.9.x straight to v0.10.1. Everything below that says v0.10.0 holds for
+v0.10.1 too.
 
 1. **`FINGERPRINT_KEY` is required** (at least 32 characters). It keys the
    fingerprint of every stored secret finding. The kit manages it on the host
@@ -497,14 +500,24 @@ Read before the first apply of the kit version that lists v0.10.0.
      `ADMIN_AUDIT_SINK_TOKEN`. Do not add either through `openctem_api_env`:
      secret-looking names are refused, so configure a sink only outside the
      kit and plan a secret file for it first;
-   - `ADMIN_LISTEN_ADDR` and `ADMIN_ALLOWED_CIDRS` are not read by v0.10.0 and
-     the release ships no console gateway site; the kit renders them only for a
-     release flagged `admin_plane: true` in `versions.yml`, and
-     `scripts/vendor-release.sh` flags none for v0.10.0. Leave `openctem_admin_host` empty (the play stops otherwise; the console as its own service is described in docs/self-hosting-with-ansible.md and needs a release flagged `console_service`);
+   - v0.10.1 ships the platform console as its own service (image
+     `openctem-console`, cosign-verified with the other images) and the
+     gateway's console site, so `versions.yml` flags it `admin_plane`,
+     `console_db_role` and `console_service`. The kit renders the `console`
+     service, `ADMIN_LISTEN_ADDR` and `ADMIN_ALLOWED_CIDRS` for it. Leave
+     `openctem_admin_host` empty unless you set up the console host (behind
+     Cloudflare Access, docs/CLOUDFLARE-ACCESS.md; see
+     docs/self-hosting-with-ansible.md);
+   - sensors over mTLS (`api:9443`, passed through by the gateway at layer 4)
+     are off in the kit's gateway (`sensors/off.wrappers`); enrolling sensors
+     needs a kit change of its own;
+   - behind Cloudflare, set `OPENCTEM_CLIENT_IP_HEADERS` as described in
+     docs/CLOUDFLARE-ACCESS.md: only v0.10.1's gateway reads it (v0.9.7's
+     ignores it);
    - there is no `INTERNAL_API_*` variable in v0.10.0;
    - the SMTP variables are removed (platform e-mail is set in the console,
      System > E-mail); the kit never rendered them.
-4. **Database role for the console.** The v0.10.0 least-privilege SQL has the
+4. **Database role for the console.** The v0.10.1 least-privilege SQL has the
    console identity role (`admin_user`; v0.9.7's has none), so
    `scripts/vendor-release.sh` flags the release `console_db_role: true` and the
    kit renders `DB_ADMIN_USER`/`DB_ADMIN_PASSWORD` for it. The password
@@ -515,7 +528,7 @@ Read before the first apply of the kit version that lists v0.10.0.
 
 ```bash
 git pull
-ansible-playbook -i $INV playbooks/50-openctem.yml -K -e apply_openctem=true -e openctem_version=v0.10.0
+ansible-playbook -i $INV playbooks/50-openctem.yml -K -e apply_openctem=true -e openctem_version=v0.10.1
 ```
 
 Rollback to v0.9.7 keeps working (an older API ignores `FINGERPRINT_KEY`);

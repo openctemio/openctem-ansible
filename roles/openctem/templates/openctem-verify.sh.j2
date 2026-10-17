@@ -22,7 +22,7 @@ bad() { echo "FAIL $*"; fail=1; }
 
 # Every long-running service is running and, where it has a healthcheck, healthy.
 for svc in $(dc config --services); do
-	case "$svc" in gateway-init|datastore-tls|db-roles|migrate) continue ;; esac
+	case "$svc" in gateway-init|datastore-tls|db-roles|db-grants|migrate) continue ;; esac
 	id="$(dc ps -q "$svc" 2>/dev/null)"
 	if [ -z "$id" ]; then bad "service $svc has no container"; continue; fi
 	st="$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")"
@@ -77,10 +77,15 @@ expect 404 "unknown.invalid" 80 /login
 {% if openctem_releases[openctem_version].console_service | default(false) | bool and openctem_admin_site != 'off' %}
 # The platform console's own site answers (403 from a network outside
 # openctem_admin_allowed_cidrs is an answer; 404 or silence is a missing site).
+# Only while the compose file that runs has the console service: after a
+# rollback to a release without it, this script (rendered for the newer
+# release) must not expect its site.
+if dc config --services | grep -qx console; then
 {% if openctem_admin_site == 'host' %}
-expect '!404' '{{ openctem_admin_host }}' 80 /login
+	expect '!404' '{{ openctem_admin_host }}' 80 /login
 {% else %}
-expect '!404' "$app" {{ openctem_admin_port }} /login
+	expect '!404' "$app" {{ openctem_admin_port }} /login
 {% endif %}
+fi
 {% endif %}
 exit "$fail"
