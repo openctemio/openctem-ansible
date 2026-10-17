@@ -17,9 +17,18 @@
 #                          ghcr.io/openctemio/openctem-console (add a `console:` digest next to the other
 #                          images; it is cosign-verified like them) and gateway/servers.common.
 #                          The roles then render a `console` service and the gateway's console site
-#                          (openctem_admin_site). No released version has it yet: the release that
-#                          ships openctem-console (openctem #2443) sets it, via scripts/vendor-release.sh.
+#                          (openctem_admin_site). Set by scripts/vendor-release.sh; v0.10.1 is the
+#                          first release with published images that has it (v0.10.0 was never published).
 openctem_releases:
+  v0.10.1:
+    admin_plane: true
+    console_db_role: true
+    console_service: true
+    api: ghcr.io/openctemio/openctem-api@sha256:547f5a5cef7057438f490ba88808e5502c61ea4a7674b2845a701897a06328d3
+    web: ghcr.io/openctemio/openctem-web@sha256:0c0d9bd817232e41a8c557cfc5b97b434f6c404acb37c8f349485b047e87b71f
+    gateway: ghcr.io/openctemio/openctem-gateway@sha256:6e073b0480df602a71155f03b0e20954b45257ba0df404ff8b01d9a659f886eb
+    migrations: ghcr.io/openctemio/migrations@sha256:febae591a18002730726d90a92e484b0314b023258a4d5138720c12e888abc56
+    console: ghcr.io/openctemio/openctem-console@sha256:7a64c8abf1f2d1acbcd1b27cc834a412abf3447084cedb04b1745b5d791b2ee0
   v0.9.7:
     api: ghcr.io/openctemio/openctem-api@sha256:7986db7e74f0caf633f6df59b7089c5334e62cf5ba27bcbf0f463be23367cf00
     web: ghcr.io/openctemio/openctem-web@sha256:602ddd5b65a2709cc92b33a36abb8860cf41e656027b9f4fda4ceefc9b505408

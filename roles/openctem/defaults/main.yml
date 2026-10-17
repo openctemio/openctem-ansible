@@ -112,7 +112,7 @@ openctem_admin_bind: ''
 openctem_admin_allowed_cidrs: [127.0.0.0/8, '::1/128', 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 'fc00::/7']
 
 # One-shot jobs of the compose file (skipped when starting an older release).
-openctem_oneshot_services: [gateway-init, datastore-tls, db-roles, migrate]
+openctem_oneshot_services: [gateway-init, datastore-tls, db-roles, db-grants, migrate]
 
 # --- Upgrade ---------------------------------------------------------------------------
 # A backup must succeed before images change on a running installation.

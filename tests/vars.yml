@@ -1,7 +1,7 @@
 ---
 # Test values for tests/render.yml and tests/smoke.sh (documentation names only).
 openctem_app_host: ctem.example.com
-openctem_version: v0.9.7
+openctem_version: v0.10.1
 openctem_ingress: cloudflared
 admin_cidrs: [192.0.2.0/24]
 backup_age_recipient: ''
