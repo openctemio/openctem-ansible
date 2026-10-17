@@ -1,7 +1,15 @@
 {% set rel = openctem_releases[openctem_version] %}
 {% set admin_plane = rel.admin_plane | default(false) | bool %}
 {% set console_db_role = rel.console_db_role | default(false) | bool %}
-{% set admin_site = admin_plane and (openctem_admin_host | length > 0) %}
+{% set console_service = rel.console_service | default(false) | bool %}
+{# The console site: its own service (console_service) honours openctem_admin_site;
+   older admin_plane releases keep the host-name-only behaviour. #}
+{% if console_service %}
+{% set admin_site = openctem_admin_site %}
+{% else %}
+{% set admin_site = 'host' if (admin_plane and (openctem_admin_host | length > 0)) else 'off' %}
+{% endif %}
+{% set admin_bind = openctem_admin_bind if openctem_admin_bind | length > 0 else '127.0.0.1' %}
 # {{ ansible_managed }}
 # OpenCTEM {{ openctem_version }}. The only way in is the gateway on the
 # tunnel network: cloudflared (compose.cloudflared.yml, roles/cloudflared) or,
@@ -50,6 +58,12 @@ services:
 {% if openctem_ingress == 'loopback' %}
     ports:
       - "127.0.0.1:{{ openctem_loopback_port }}:80"
+{% if console_service and admin_site == 'port' %}
+      # The console's site (OPENCTEM_ADMIN_SITE=port): answers only
+      # openctem_admin_allowed_cidrs. A published port bypasses the host
+      # firewall: keep openctem_admin_bind private or loopback.
+      - "{{ ('[' ~ admin_bind ~ ']') if ':' in admin_bind else admin_bind }}:{{ openctem_admin_port }}:{{ openctem_admin_port }}"
+{% endif %}
 {% endif %}
     entrypoint: ["/bin/sh", "/etc/caddy/entrypoint.sh"]
     environment:
@@ -69,7 +83,17 @@ services:
       OPENCTEM_TRUSTED_PROXIES: {{ openctem_net_tunnel }}.1/32
 {% endif %}
       GATEWAY_MAX_BODY_SIZE: 256MB
-{% if admin_site %}
+{% if console_service %}
+      # The platform console is its own service on its own site (root of the
+      # site, no /admin path), private networks only by default.
+      OPENCTEM_CONSOLE_UPSTREAM: console:3000
+      OPENCTEM_ADMIN_SITE: {{ admin_site }}
+      OPENCTEM_ADMIN_HOST: {{ openctem_admin_host | to_json }}
+      OPENCTEM_ADMIN_PORT: {{ openctem_admin_port | string | to_json }}
+      # The main site's published port: the gateway refuses a console port equal to it.
+      GATEWAY_HTTPS_PORT: {{ (openctem_loopback_port if openctem_ingress == 'loopback' else 443) | string | to_json }}
+      OPENCTEM_ADMIN_ALLOWED_CIDRS: "{{ openctem_admin_allowed_cidrs | join(' ') }}"
+{% elif admin_site == 'host' %}
       # The platform console on its own host name, private networks only by
       # default (openctem_admin_allowed_cidrs).
       OPENCTEM_ADMIN_SITE: host
@@ -96,6 +120,10 @@ services:
         condition: service_healthy
       web:
         condition: service_healthy
+{% if console_service %}
+      console:
+        condition: service_healthy
+{% endif %}
     networks:
       tunnel:
         ipv4_address: {{ openctem_net_tunnel }}.11
@@ -115,11 +143,11 @@ services:
     environment:
       NODE_ENV: production
       BACKEND_API_URL: http://api:8080
-{% if admin_plane %}
+{% if admin_plane and not console_service %}
       # The console proxy talks to the API's console listener.
       ADMIN_API_URL: http://api:8081
 {% endif %}
-{% if admin_site %}
+{% if admin_site == 'host' and not console_service %}
       # The console only on its own host name, never on the main one.
       OPENCTEM_ADMIN_PLANE: separate
 {% endif %}
@@ -149,6 +177,42 @@ services:
           cpus: "{{ openctem_cpus_web }}"
     logging: *logging
 
+{% if console_service %}
+  # --- Platform console: its own app and process, internal only ------------------
+  # Served by the gateway's console site at its root. No tenant page runs here
+  # and no console page in web. Nothing publishes it: only the gateway (origin
+  # network) reaches it, so the forwarded client address is believed.
+  console:
+    image: {{ rel.console }}
+    environment:
+      NODE_ENV: production
+      # The console API: the API's internal console listener.
+      ADMIN_API_URL: http://api:8081
+      # The public API, for the instance brand (name, colours, logo).
+      BACKEND_API_URL: http://api:8080
+      SECURE_COOKIES: "true"
+      TRUST_PROXY_HEADERS: "true"
+    init: true
+    <<: *hardening
+    read_only: true
+    tmpfs:
+      - /tmp:size=32m
+      - /app/console/.next/cache:uid=1001,gid=1001,size=64m
+    depends_on:
+      api:
+        condition: service_healthy
+    networks:
+      origin:
+        ipv4_address: {{ openctem_net_origin }}.13
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          pids: 512
+          memory: {{ openctem_mem_console }}
+    logging: *logging
+
+{% endif %}
   # --- Database roles and migrations (one-shot, every up) ------------------------
 {% if console_db_role %}
   # openctem_console alone writes the console's identity tables
@@ -234,7 +298,8 @@ services:
       SERVER_HOST: 0.0.0.0
       SERVER_PORT: "8080"
       # X-Real-IP / X-Forwarded-For believed from the gateway and web only.
-      SERVER_TRUSTED_PROXIES: {{ openctem_net_origin }}.10,{{ openctem_net_origin }}.11
+      SERVER_TRUSTED_PROXIES: {{ openctem_net_origin }}.10,{{ openctem_net_origin }}.11{% if console_service %},{{ openctem_net_origin }}.13{% endif %}
+
 {% if admin_plane %}
       # The console API only on its own listener, on the API's fixed private
       # address (plain HTTP on the origin network, never published); the main
@@ -275,7 +340,7 @@ services:
 {% if openctem_job_signer | bool %}
       SIGNER_SOCKET: /run/openctem-signer/signer.sock
 {% endif %}
-    # DB_PASSWORD, REDIS_PASSWORD, APP_ENCRYPTION_KEY, METRICS_TOKEN
+    # DB_PASSWORD, REDIS_PASSWORD, APP_ENCRYPTION_KEY, FINGERPRINT_KEY, METRICS_TOKEN
     env_file:
       - {{ openctem_secrets_dir }}/api.env
     healthcheck:

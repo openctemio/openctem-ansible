@@ -5,8 +5,13 @@
 ingress:
   - hostname: {{ openctem_app_host }}
     service: http://gateway:80
-{% if (openctem_releases[openctem_version].admin_plane | default(false) | bool) and (openctem_admin_host | default('') | length > 0) %}
-  # The platform console's own host name (its own Cloudflare Access application).
+{% set console_service = openctem_releases[openctem_version].console_service | default(false) | bool %}
+{% if (console_service and openctem_admin_site | default('port') == 'host' and openctem_admin_host | default('') | length > 0)
+   or (not console_service and (openctem_releases[openctem_version].admin_plane | default(false) | bool) and (openctem_admin_host | default('') | length > 0)) %}
+  # The platform console's own host name. It MUST have its own Cloudflare
+  # Access application (people only, no Bypass): never publish the console
+  # through a public tunnel without that zero-trust layer. Port mode is not
+  # published through the tunnel.
   - hostname: {{ openctem_admin_host }}
     service: http://gateway:80
 {% endif %}

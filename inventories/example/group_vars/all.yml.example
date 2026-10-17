@@ -11,7 +11,7 @@
 openctem_app_host: ctem.example.com
 
 # --- Release (must be a key of openctem_releases in versions.yml) ------------------
-openctem_version: v0.9.7
+openctem_version: v0.10.1
 
 # --- Ingress -----------------------------------------------------------------------
 # cloudflared (default): Cloudflare Tunnel, no inbound port at all.
@@ -52,3 +52,14 @@ apply_firewall: false
 apply_openctem: false
 apply_backup: false
 apply_monitoring: false
+
+# Platform console as its own service (releases flagged console_service).
+# Recommended in production: its own host name behind its own Cloudflare
+# Access application (docs/self-hosting-with-ansible.md). The default is a
+# second port (loopback ingress only).
+# openctem_admin_site: host
+# openctem_admin_host: admin.example.com
+# openctem_admin_allowed_cidrs: [203.0.113.0/24]
+# openctem_admin_site: port        # needs openctem_ingress: loopback
+# openctem_admin_port: 8443
+# openctem_admin_bind: ''          # '' = 127.0.0.1; a private/VPN address only

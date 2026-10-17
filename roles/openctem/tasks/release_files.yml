@@ -56,6 +56,18 @@
   when: openctem_releases[openctem_version].admin_plane | default(false) | bool
   register: openctem_release_admin_copy
 
+# Releases that run the console as its own service (console_service): the
+# settings every HTTP server of the gateway shares, the console site's included.
+- name: Copy the shared gateway server settings of this release
+  ansible.builtin.copy:
+    src: "release/{{ openctem_version }}/gateway/servers.common"
+    dest: "{{ openctem_release_root }}/gateway/servers.common"
+    owner: root
+    group: root
+    mode: '0644'
+  when: openctem_releases[openctem_version].console_service | default(false) | bool
+  register: openctem_release_servers_copy
+
 - name: Gateway site (one origin, plain HTTP on the tunnel network)
   ansible.builtin.template:
     src: http.site.j2

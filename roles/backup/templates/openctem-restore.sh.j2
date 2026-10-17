@@ -48,8 +48,9 @@ log "stopping$services"
 if [ "$with_secrets" = yes ]; then
 	log "restoring generated secrets (keeping this cluster's superuser password)"
 	tar -C "$w" -xzf "$w/secrets.tar.gz"
-	for s in db_migrate_password db_app_password db_console_password redis_password app_encryption_key metrics_token; do
-		# Backups from before db_console_password existed: keep this server's.
+	for s in db_migrate_password db_app_password db_console_password redis_password app_encryption_key fingerprint_key metrics_token; do
+		# Backups from before db_console_password or fingerprint_key existed:
+		# keep this server's.
 		[ -f "$w/$s" ] || continue
 		cp "$w/$s" "$SECRETS/$s.new"
 		chmod 0400 "$SECRETS/$s.new"

@@ -46,6 +46,16 @@ jobs:
           done
       - name: Render the templates
         run: ansible-playbook tests/render.yml -e render_dir="$RUNNER_TEMP/render"
+      - name: Platform console as its own service (fixture release, site modes, validation)
+        run: tests/console.sh "$RUNNER_TEMP/console"
+      - name: Rendered settings (FINGERPRINT_KEY, SIGNUP_MODE, no TENANT_CREATION_MODE)
+        run: |
+          set -e
+          r="$RUNNER_TEMP/render"
+          ! grep -rq TENANT_CREATION_MODE "$r/compose.yml" "$r/scripts"
+          grep -q 'SIGNUP_MODE: disabled' "$r/compose.yml"
+          grep -q '^FINGERPRINT_KEY=' "$r/scripts/openctem-secrets"
+          tests/secrets-fingerprint.sh "$r/scripts/openctem-secrets"
       - name: shellcheck (rendered scripts and test scripts)
         run: |
           shellcheck -S warning -s bash "$RUNNER_TEMP"/render/scripts/* tests/*.sh scripts/*.sh
