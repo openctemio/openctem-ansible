@@ -1,0 +1,15 @@
+---
+# A made-up release flagged console_service, for tests/console.sh only (never
+# in versions.yml: no released version ships openctem-console yet). Digests are
+# placeholders, never pulled.
+openctem_version: v0.99.0
+openctem_releases:
+  v0.99.0:
+    admin_plane: true
+    console_service: true
+    console_db_role: true
+    api: ghcr.io/openctemio/openctem-api@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    web: ghcr.io/openctemio/openctem-web@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    gateway: ghcr.io/openctemio/openctem-gateway@sha256:3333333333333333333333333333333333333333333333333333333333333333
+    migrations: ghcr.io/openctemio/migrations@sha256:4444444444444444444444444444444444444444444444444444444444444444
+    console: ghcr.io/openctemio/openctem-console@sha256:5555555555555555555555555555555555555555555555555555555555555555
