@@ -45,6 +45,13 @@ flowchart LR
 Detailed references: [Cloudflare Tunnel and Access](docs/CLOUDFLARE-ACCESS.md) ·
 [Firewall](docs/FIREWALL.md) · [docs site page](docs/self-hosting-with-ansible.md).
 
+Step-by-step guides on the documentation site (they cover the same ground with more
+context, for both ways of serving OpenCTEM):
+
+- [Install with Ansible](https://docs.openctem.io/install/ansible/): VM, controller, inventory, stages, backups, upgrade and rollback.
+- [Deploy with Cloudflare Tunnel and Access](https://docs.openctem.io/install/ansible-cloudflare/): no inbound port.
+- [Deploy without Cloudflare](https://docs.openctem.io/install/ansible-without-cloudflare/): your own TLS proxy, public (Let's Encrypt) or private (internal CA).
+
 ## 1. Prerequisites
 
 | | Minimum | Notes |
@@ -65,7 +72,17 @@ signer 128 MB): about 5.4 GB for containers. Change the `openctem_mem_*` and
 gateway then listens on `127.0.0.1:8080` (plain HTTP) for a TLS reverse proxy
 you run on the host (Caddy, nginx). You own TLS, client-address forwarding
 (the proxy must set `X-Forwarded-For`) and access control. Opening 443 in the
-firewall is then your change.
+firewall is then your change. Also set `monitoring_external_probes: false`
+(those probes assume Cloudflare). The guide
+[Deploy without Cloudflare](https://docs.openctem.io/install/ansible-without-cloudflare/)
+has a Caddyfile for a public host (Let's Encrypt) and for a private network
+(internal CA), the firewall rules and the checks.
+
+**Controller, not server.** Run every `ansible` and `ansible-playbook` command on
+a controller (your workstation or an admin box), never on the VM you install:
+Ansible connects to the VM over SSH, and a firewall or SSH stage would cut your
+own session. The controller needs Python 3.11 to 3.13 and `git`, and must be
+able to SSH to the VM with a key.
 
 ## 2. Quickstart (15 minutes)
 
@@ -76,6 +93,11 @@ git clone https://github.com/openctemio/openctem-ansible.git && cd openctem-ansi
 python3 -m venv .venv && . .venv/bin/activate
 pip install 'ansible-core>=2.18,<2.19'
 ansible-galaxy collection install -r requirements.yml -p ./collections
+# No python3-venv on the controller (minimal Ubuntu, no sudo)? Create the venv
+# without pip and install into it from outside:
+#   python3 -m venv --without-pip .venv
+#   pip3 install --python .venv/bin/python 'ansible-core>=2.18,<2.19'
+#   then call .venv/bin/ansible-playbook and .venv/bin/ansible-galaxy
 
 # Your site data lives OUTSIDE the repository.
 mkdir -p ~/.config/openctem-ansible && cp -r inventories/example ~/.config/openctem-ansible/inventory
@@ -84,6 +106,13 @@ $EDITOR ~/.config/openctem-ansible/inventory/hosts.ini          # your VM addres
 $EDITOR ~/.config/openctem-ansible/inventory/group_vars/all.yml # host name, admin CIDRs, age public key
 INV=~/.config/openctem-ansible/inventory/hosts.ini
 ```
+
+`-i` must name the **file** `hosts.ini` (as `INV` does), not the inventory
+directory: a directory gives `No inventory was parsed`. `group_vars/` beside the
+file is still read. `-K` below (`--ask-become-pass`) asks once for the sudo
+password of the SSH user **on the VM** (`BECOME password:`); it stays in
+Ansible's memory and is never written anywhere. Leave `-K` out when that user has
+passwordless sudo. Check the connection first: `ansible -i $INV openctem -m ping`.
 
 In Cloudflare: create the tunnel and copy its token
 ([§1](docs/CLOUDFLARE-ACCESS.md#1-create-the-tunnel)). On the VM (console or
@@ -553,6 +582,9 @@ see the rollback notes below.
 | Python warnings about the interpreter | set `ansible_python_interpreter=/usr/bin/python3.14` (26.04) in the inventory. |
 | A port is reachable although ufw denies it | a container publishes it: Docker bypasses ufw ([docs/FIREWALL.md](docs/FIREWALL.md)). `playbooks/85-exposure-audit.yml` lists them. |
 | Containers have no internet after hardening | `net.ipv4.ip_forward` was turned off, or `iptables: false` was set in `daemon.json`. The OS role pins forwarding on; remove `iptables: false`. |
+| A new host name (for example the console's `openctem_admin_host`) still answers 404 after Access although `/opt/openctem/cloudflared.yml` has it | The connector read the route file when it started. A locally managed tunnel's file is bind-mounted as a single file that the play replaces, so the connector must be recreated. Kit versions with the `Recreate cloudflared` handler do it in the same run; with an older kit run `sudo docker compose -p openctem -f /opt/openctem/compose.yml -f /opt/openctem/compose.cloudflared.yml up -d --no-deps --force-recreate cloudflared` (the tunnel drops for a few seconds). A remotely managed tunnel keeps its routes in Cloudflare and is not affected. |
+| `No inventory was parsed` | `-i` names a directory. Name the file: `-i ~/.config/openctem-ansible/inventory/hosts.ini`. |
+| `python3 -m venv` fails with `ensurepip is not available` | `python3-venv` is missing: `python3 -m venv --without-pip .venv`, then `pip3 install --python .venv/bin/python 'ansible-core>=2.18,<2.19'`. |
 | Tunnel "Down" / `cloudflared` unhealthy | outbound 7844/udp and 7844/tcp blocked upstream, or a wrong token: `sudo docker logs openctem-cloudflared-1` (tokens are not printed), re-place the token, `sudo docker compose -p openctem -f /opt/openctem/compose.yml -f /opt/openctem/compose.cloudflared.yml up -d cloudflared`. |
 | 503 for every path through the tunnel, connector logs `No ingress rules were defined` | the tunnel has no route. Remotely managed tunnel: add the public hostname in the dashboard. Locally managed tunnel (the dashboard says routes come from the local configuration file): set `cloudflared_management: local` and re-run `playbooks/50-openctem.yml` ([docs/CLOUDFLARE-ACCESS.md §1](docs/CLOUDFLARE-ACCESS.md#1-create-the-tunnel)). |
 | `--check` stops at a read-only check | every read-only command task runs under `--check` (`check_mode: false`); tasks that depend on packages a previous stage installs (auditd, fail2ban) report "not found" in check mode before that stage ran. Run the stages in order. |
@@ -608,7 +640,7 @@ by SHA-256.
 - [ ] Cloudflare: Access app with IdP + MFA; Bypass apps only on the four machine paths; WAF rate limit; WebSockets on; no origin JWT check on the route
 - [ ] Outside acceptance tests pass (console and `/api/v1/me` challenged; sensor 401; CI exchange 400)
 - [ ] First administrator created on the console, TOTP enrolled, break-glass stored offline
-- [ ] E-mail configured; sign-up policy `admin_only`
+- [ ] E-mail configured; sign-up policy `disabled` (the default `openctem_signup_mode`)
 - [ ] Automatic coverage reviewed per organization (Scoping → Settings) and the daily budget set
 - [ ] Backups in age mode, off-host copy configured, restore drill passed
 - [ ] Monitoring timer active, webhook tested (`sudo systemctl start openctem-monitor`)
