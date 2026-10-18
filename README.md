@@ -226,6 +226,14 @@ ufw: deny inbound except SSH from `admin_cidrs`. Refuses to run if this
 controller is outside them. Read [docs/FIREWALL.md](docs/FIREWALL.md) for why
 Docker-published ports bypass ufw and how this deployment avoids publishing any.
 
+The same stage can also close the stack's **outbound** side: with
+`openctem_egress_policy: restricted` (the default for a hosted service,
+`openctem_signup_mode: open`) the API and the tunnel connector cannot reach
+private, link-local/metadata, CGNAT, loopback or host-local addresses, only the
+internet. Operator-approved internal destinations (an internal SMTP relay, an
+on-premises Jira) go in `openctem_egress_allow`. See
+[docs/FIREWALL.md](docs/FIREWALL.md#outbound-policy-of-the-stacks-containers).
+
 ### 3.8 OpenCTEM
 
 Place the tunnel token first (see the quickstart), then:

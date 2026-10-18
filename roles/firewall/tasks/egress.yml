@@ -1,0 +1,124 @@
+---
+# Outbound policy of the stack's containers (openctem_egress_policy). The rules
+# are DOCKER-USER/INPUT rules (iptables backend, docs/FIREWALL.md) written by
+# /usr/local/sbin/openctem-egress and re-applied by a systemd unit at boot and
+# whenever Docker restarts.
+- name: The egress policy is open or restricted
+  ansible.builtin.assert:
+    that: openctem_egress_policy in ['open', 'restricted']
+    fail_msg: "openctem_egress_policy must be 'open' or 'restricted', not '{{ openctem_egress_policy }}'."
+
+- name: Approved internal destinations are narrow and well formed
+  ansible.builtin.assert:
+    that:
+      - item is mapping
+      - item.cidr is defined
+      - item.cidr is match('^((25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})\.){3}(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})/(2[4-9]|3[0-2])$')
+      - not (item.cidr is match('^169\.254\.'))
+      - (item.proto | default('tcp')) in ['tcp', 'udp']
+      - item.port is not defined or (item.port | string is match('^[0-9]+$') and item.port | int >= 1 and item.port | int <= 65535)
+      - item.keys() | difference(['cidr', 'port', 'proto']) | length == 0
+    fail_msg: >-
+      openctem_egress_allow items are { cidr: <IPv4 /24 or narrower, not 169.254/16>, port: <1-65535, optional>,
+      proto: <tcp|udp, optional> }; got {{ item }}.
+  loop: "{{ openctem_egress_allow }}"
+  loop_control:
+    label: "{{ item.cidr | default(item) }}"
+
+- name: Docker keeps managing its firewall chains
+  ansible.builtin.command: docker info --format '{% raw %}{{.FirewallBackend}}{% endraw %}'
+  changed_when: false
+  check_mode: false
+  failed_when: false
+  register: firewall_backend
+  when: openctem_egress_policy == 'restricted'
+
+# The nftables backend of Docker has no DOCKER-USER chain: refuse rather than
+# pretend the policy is enforced.
+- name: The Docker firewall backend is not nftables
+  ansible.builtin.assert:
+    that: firewall_backend.rc != 0 or 'nftables' not in firewall_backend.stdout
+    fail_msg: "Docker's firewall backend is '{{ firewall_backend.stdout }}': the egress policy needs the iptables backend (docs/FIREWALL.md)."
+  when: openctem_egress_policy == 'restricted'
+
+- name: Restricted policy
+  when: openctem_egress_policy == 'restricted'
+  block:
+    - name: Install iptables
+      ansible.builtin.apt:
+        name: [iptables]
+        state: present
+
+    - name: Egress rules script
+      ansible.builtin.template:
+        src: openctem-egress.sh.j2
+        dest: /usr/local/sbin/openctem-egress
+        owner: root
+        group: root
+        mode: '0750'
+      register: firewall_egress_script
+
+    - name: Systemd unit (boot and Docker restart)
+      ansible.builtin.copy:
+        dest: /etc/systemd/system/openctem-egress.service
+        content: |
+          # Managed by Ansible (roles/firewall).
+          [Unit]
+          Description=OpenCTEM outbound policy for the stack's containers
+          Requires=docker.service
+          After=docker.service
+          PartOf=docker.service
+
+          [Service]
+          Type=oneshot
+          RemainAfterExit=yes
+          ExecStart=/usr/local/sbin/openctem-egress apply
+
+          [Install]
+          WantedBy=multi-user.target docker.service
+        owner: root
+        group: root
+        mode: '0644'
+      register: firewall_egress_unit
+
+    - name: Enable the unit
+      ansible.builtin.systemd_service:
+        name: openctem-egress.service
+        enabled: true
+        daemon_reload: "{{ firewall_egress_unit.changed }}"
+      when: not ansible_check_mode
+
+    # Every run re-reads the host's resolvers and the allow-list.
+    - name: Apply the rules now
+      ansible.builtin.command: /usr/local/sbin/openctem-egress apply
+      changed_when: false
+      when: not ansible_check_mode
+
+- name: Open policy
+  when: openctem_egress_policy == 'open'
+  block:
+    - name: Is the egress script installed
+      ansible.builtin.stat:
+        path: /usr/local/sbin/openctem-egress
+      register: firewall_egress_installed
+
+    - name: Remove the rules
+      ansible.builtin.command: /usr/local/sbin/openctem-egress remove
+      changed_when: firewall_egress_installed.stat.exists
+      when: firewall_egress_installed.stat.exists and not ansible_check_mode
+
+    - name: Disable the unit
+      ansible.builtin.systemd_service:
+        name: openctem-egress.service
+        enabled: false
+        state: stopped
+      failed_when: false
+      when: firewall_egress_installed.stat.exists and not ansible_check_mode
+
+    - name: Remove the script and the unit
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /usr/local/sbin/openctem-egress
+        - /etc/systemd/system/openctem-egress.service

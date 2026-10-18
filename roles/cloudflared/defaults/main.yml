@@ -10,7 +10,7 @@ cloudflared_token_file: "{{ openctem_secrets_dir }}/cloudflared_tunnel_token"
 cloudflared_token_uid: 65532
 cloudflared_mem: 256m
 # Outbound-only network for the connector (Cloudflare edge, 7844 udp/tcp).
-cloudflared_net_egress: 172.30.83
+# (cloudflared_net_egress: roles/openctem_common, the firewall role needs it too)
 # remote: the public hostname route is set in the Cloudflare dashboard.
 # local:  a locally managed tunnel; the dashboard cannot set routes, so the
 #         role writes the ingress rules to {{ openctem_root }}/cloudflared.yml
