@@ -14,6 +14,10 @@ CERT_WARN=$(( {{ monitoring_cert_warn_days | int }} * 86400 ))
 BSTATE='{{ monitoring_backup_state_dir }}'
 EXTERNAL='{{ 'yes' if monitoring_external_probes | bool else 'no' }}'
 REPEAT='{{ monitoring_repeat_seconds | int }}'
+WAL_SPOOL='{{ monitoring_wal_spool_dir }}'
+WAL_LAG=$(( {{ monitoring_wal_lag_minutes | int }} * 60 ))
+WAL_SPOOL_MAX_MB='{{ monitoring_wal_spool_max_mb | int }}'
+BASE_MAX_AGE=$(( {{ monitoring_basebackup_max_age_days | int }} * 86400 ))
 PROJECT='{{ openctem_project }}'
 MSTATE=/var/lib/openctem-monitor
 ENVF=/etc/openctem/monitor.env
@@ -45,6 +49,33 @@ if [ -f /etc/systemd/system/openctem-backup.service ]; then
 	age=$(( $(date +%s) - last ))
 	[ "$age" -gt "$BACKUP_MAX_AGE" ] && alert "last successful backup $(( age / 3600 ))h ago"
 	[ "$(cat "$BSTATE/last_exit" 2> /dev/null || echo 0)" != 0 ] && alert "last backup run failed (journalctl -u openctem-backup)"
+fi
+
+# 3a. Continuous archiving (when the backup role installed it): the oldest
+# finished segment still waiting in the spool is the archive lag (the data
+# a disk loss would cost); the uploader and the weekly base backup must succeed.
+if [ -f /etc/systemd/system/openctem-wal-ship.timer ]; then
+	now="$(date +%s)"
+	oldest="$(find "$WAL_SPOOL" -maxdepth 1 -type f -regextype posix-extended -regex '.*/[0-9A-F]{24}' -printf '%T@\n' 2> /dev/null | sort -n | head -n 1 | cut -d. -f1)"
+	if [ -n "$oldest" ] && [ $(( now - oldest )) -gt "$WAL_LAG" ]; then
+		alert "WAL archive lag: the oldest segment waiting for upload is $(( (now - oldest) / 60 )) min old (limit $(( WAL_LAG / 60 )) min; journalctl -u openctem-wal-ship)"
+	fi
+	mb="$(du -sm "$WAL_SPOOL" 2> /dev/null | cut -f1)"
+	[ -n "$mb" ] && [ "$mb" -gt "$WAL_SPOOL_MAX_MB" ] && alert "WAL spool holds ${mb} MB (limit ${WAL_SPOOL_MAX_MB} MB): uploads are not keeping up"
+	[ "$(cat "$BSTATE/wal_last_exit" 2> /dev/null || echo 0)" != 0 ] && alert "last WAL upload failed (journalctl -u openctem-wal-ship)"
+	pg="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter label=com.docker.compose.service=postgres 2> /dev/null | head -n 1)"
+	if [ -n "$pg" ]; then
+		failing="$(docker exec "$pg" psql -U postgres -d postgres -qtAX -c "SELECT coalesce(last_failed_time > coalesce(last_archived_time, '-infinity'), false) FROM pg_stat_archiver" 2> /dev/null || true)"
+		[ "$failing" = t ] && alert "Postgres archive_command is failing (disk full or spool not writable; docker logs of the postgres container)"
+	fi
+	base="$(cat "$BSTATE/base_last_success" 2> /dev/null || echo 0)"
+	if [ "$base" = 0 ]; then
+		# No base backup yet: expected right after enabling, an alert after a day.
+		[ -n "$(find /etc/systemd/system/openctem-base-backup.timer -mmin +1440 2> /dev/null)" ] && alert "no base backup exists yet: point-in-time recovery is impossible (systemctl start openctem-base-backup)"
+	elif [ $(( now - base )) -gt "$BASE_MAX_AGE" ]; then
+		alert "last base backup $(( (now - base) / 86400 )) days ago (limit $(( BASE_MAX_AGE / 86400 )))"
+	fi
+	[ "$(cat "$BSTATE/base_last_exit" 2> /dev/null || echo 0)" != 0 ] && alert "last base backup failed (journalctl -u openctem-base-backup)"
 fi
 
 # 3b. Outbound policy of the stack's containers (when the firewall role installed it).

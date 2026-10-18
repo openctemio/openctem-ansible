@@ -1,0 +1,31 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Uploads the finished WAL segments of the database to the bucket: gzip, then
+# encrypted to the age recipient of this host, then rclone. A segment leaves
+# the spool only after the bucket lists it. Run every {{ backup_wal_ship_interval }} by
+# openctem-wal-ship.timer; safe to run by hand.
+# shellcheck disable=SC2154 # settings come from wal-common.sh
+set -euo pipefail
+umask 077
+{% raw %}
+# shellcheck source=/dev/null
+. /usr/local/lib/openctem/wal-common.sh
+wal_setup_check
+exec 8> "$BSTATE/wal-ship.lock"
+flock -n 8 || { wlog "another upload is running"; exit 0; }
+trap 'echo 1 > "$BSTATE/wal_last_exit"; wlog "FAILED (the segment stays in the spool and is retried)"' ERR
+
+shipped=0
+names=()
+mapfile -t names < <(find "$SPOOL" -maxdepth 1 -type f -regextype posix-extended \
+	-regex '.*/([0-9A-F]{24}|[0-9A-F]{8}\.history|[0-9A-F]{24}\.[0-9A-F]{8}\.backup)' -printf '%f\n' | sort)
+for f in "${names[@]}"; do
+	gzip -c "$SPOOL/$f" | age -R "$RECIPIENTS" | rc rcat "$REMOTE/wal/$f.gz.age"
+	[ -n "$(rc lsf "$REMOTE/wal/$f.gz.age")" ] || wdie "$f: the bucket does not list the upload"
+	rm -f -- "$SPOOL/$f"
+	shipped=$((shipped + 1))
+done
+date +%s > "$BSTATE/wal_last_success"
+echo 0 > "$BSTATE/wal_last_exit"
+[ "$shipped" = 0 ] || wlog "uploaded $shipped WAL file(s)"
+{% endraw %}

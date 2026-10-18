@@ -1,0 +1,141 @@
+---
+# Continuous archiving (openctem_wal_archive: true): uploader, weekly base
+# backup, point-in-time recovery tools. The bucket and its access token are the
+# owner's; the token lives only in backup_wal_remote_conf (root, 0400/0600).
+- name: Continuous archiving needs encrypted backups and a bucket
+  ansible.builtin.assert:
+    that:
+      - backup_mode == 'age'
+      - backup_wal_bucket | length > 0
+      - backup_wal_bucket is match('^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$')
+      - backup_wal_prefix is match('^[A-Za-z0-9._-]+$')
+      - backup_wal_retention_days | int >= 2
+    fail_msg: >-
+      openctem_wal_archive needs backup_age_recipient (WAL is encrypted on this host), backup_wal_bucket
+      (a bucket name), a plain backup_wal_prefix and backup_wal_retention_days >= 2.
+
+- name: The remote definition is in place
+  ansible.builtin.stat:
+    path: "{{ backup_wal_remote_conf }}"
+  register: backup_wal_conf
+
+- name: The remote definition is the owner's, root-only
+  ansible.builtin.assert:
+    that:
+      - ansible_check_mode or backup_wal_conf.stat.exists
+      - ansible_check_mode or (backup_wal_conf.stat.pw_name == 'root' and backup_wal_conf.stat.mode in ['0400', '0600'])
+    fail_msg: >-
+      Place the rclone remote definition ([openctem-backup], type s3, endpoint, access key) at
+      {{ backup_wal_remote_conf }} as root:root with mode 0400 or 0600 (docs/BACKUP-PITR.md). It never goes in the inventory or git.
+
+# Postgres (uid 999) writes finished segments here, root's uploader empties it.
+- name: WAL spool directory
+  ansible.builtin.file:
+    path: "{{ openctem_wal_spool_dir }}"
+    state: directory
+    owner: '999'
+    group: '999'
+    mode: '0700'
+
+- name: Continuous archiving tools
+  ansible.builtin.template:
+    src: "{{ item.src }}"
+    dest: "{{ item.dest }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { src: openctem-wal-common.sh.j2, dest: /usr/local/lib/openctem/wal-common.sh, mode: '0644' }
+    - { src: openctem-wal-ship.sh.j2, dest: /usr/local/sbin/openctem-wal-ship, mode: '0750' }
+    - { src: openctem-base-backup.sh.j2, dest: /usr/local/sbin/openctem-base-backup, mode: '0750' }
+
+- name: Uploader and base backup units
+  ansible.builtin.copy:
+    dest: "/etc/systemd/system/{{ item.name }}"
+    content: "{{ item.content }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop:
+    - name: openctem-wal-ship.service
+      content: |
+        # Managed by Ansible (roles/backup).
+        [Unit]
+        Description=Upload the database's WAL segments to the bucket
+        Requires=docker.service
+        After=docker.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/openctem-wal-ship
+        Nice=10
+        PrivateTmp=true
+        NoNewPrivileges=true
+        ProtectHome=true
+        TimeoutStartSec=30min
+    - name: openctem-wal-ship.timer
+      content: |
+        # Managed by Ansible (roles/backup).
+        [Unit]
+        Description=Upload WAL segments
+
+        [Timer]
+        OnBootSec=2min
+        OnUnitActiveSec={{ backup_wal_ship_interval }}
+        AccuracySec=10s
+
+        [Install]
+        WantedBy=timers.target
+    - name: openctem-base-backup.service
+      content: |
+        # Managed by Ansible (roles/backup).
+        [Unit]
+        Description=Base backup of the database for point-in-time recovery
+        Requires=docker.service
+        After=docker.service
+
+        [Service]
+        Type=oneshot
+        ExecStart=/usr/local/sbin/openctem-base-backup
+        Nice=10
+        IOSchedulingClass=best-effort
+        IOSchedulingPriority=7
+        PrivateTmp=true
+        NoNewPrivileges=true
+        ProtectHome=true
+        TimeoutStartSec=4h
+    - name: openctem-base-backup.timer
+      content: |
+        # Managed by Ansible (roles/backup).
+        [Unit]
+        Description=Weekly base backup
+
+        [Timer]
+        OnCalendar={{ backup_basebackup_on_calendar }}
+        RandomizedDelaySec=15min
+        Persistent=true
+
+        [Install]
+        WantedBy=timers.target
+  register: backup_wal_units
+
+- name: Enable the timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: true
+    state: started
+    daemon_reload: "{{ backup_wal_units.changed }}"
+  loop: [openctem-wal-ship.timer, openctem-base-backup.timer]
+  when: not ansible_check_mode
+
+# Without a base backup the archive cannot be replayed. The script refuses
+# while archive_mode is still off (the openctem play turns it on), so this
+# is retried on every run of this play until the first one exists.
+- name: First base backup
+  ansible.builtin.shell: |
+    set -eu
+    [ -e '{{ backup_state_dir }}/base_last_success' ] || systemctl start --no-block openctem-base-backup.service
+  args:
+    executable: /bin/bash
+  changed_when: false
+  when: not ansible_check_mode

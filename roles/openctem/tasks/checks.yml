@@ -60,3 +60,19 @@
     that: openctem_cf_fragment.stat.exists
     fail_msg: 'openctem_ingress=cloudflared: run the cloudflared role first (playbooks/50-openctem.yml does).'
   when: openctem_ingress == 'cloudflared' and not ansible_check_mode
+
+# Without the uploader the spool only grows (and fills the disk): the backup role
+# installs openctem-wal-ship, so it must have run first.
+- name: Is the WAL uploader installed
+  ansible.builtin.stat:
+    path: /etc/systemd/system/openctem-wal-ship.timer
+  register: openctem_wal_ship_timer
+  when: openctem_wal_archive | bool
+
+- name: Continuous archiving needs the uploader
+  ansible.builtin.assert:
+    that: ansible_check_mode or openctem_wal_ship_timer.stat.exists
+    fail_msg: >-
+      openctem_wal_archive is true but openctem-wal-ship is not installed on this server: run
+      playbooks/55-backup.yml first (README, "Continuous archiving"). Without it the WAL spool would fill the disk.
+  when: openctem_wal_archive | bool
