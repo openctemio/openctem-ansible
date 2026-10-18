@@ -13,6 +13,7 @@
     - ../roles/cloudflared/defaults/main.yml
     - ../roles/backup/defaults/main.yml
     - ../roles/monitoring/defaults/main.yml
+    - ../roles/firewall/defaults/main.yml
     - ../versions.yml
     - vars.yml
   vars:
@@ -47,6 +48,7 @@
         - { role: backup, src: openctem-wal-ship.sh.j2, dest: scripts/openctem-wal-ship }
         - { role: backup, src: openctem-base-backup.sh.j2, dest: scripts/openctem-base-backup }
         - { role: monitoring, src: openctem-monitor.sh.j2, dest: scripts/openctem-monitor }
+        - { role: firewall, src: openctem-egress.sh.j2, dest: scripts/openctem-egress }
         - { role: os_baseline, src: openctem.rules.j2, dest: audit.rules }
 
     - name: Project settings file

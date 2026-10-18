@@ -78,6 +78,15 @@ if [ -f /etc/systemd/system/openctem-wal-ship.timer ]; then
 	[ "$(cat "$BSTATE/base_last_exit" 2> /dev/null || echo 0)" != 0 ] && alert "last base backup failed (journalctl -u openctem-base-backup)"
 fi
 
+# 3b. Outbound policy of the stack's containers (when the firewall role installed it).
+if [ -f /etc/systemd/system/openctem-egress.service ]; then
+	for p in "DOCKER-USER OPENCTEM-EGRESS" "INPUT OPENCTEM-EGRESS-IN"; do
+		# shellcheck disable=SC2086
+		set -- $p
+		iptables -w 10 -C "$1" -j "$2" 2> /dev/null || alert "egress policy: $2 is not active in $1 (systemctl restart openctem-egress)"
+	done
+fi
+
 # 4. From outside, through Cloudflare.
 # challenged <path>: Access must stop an anonymous request (302 to the team
 # login or 401/403); a 200 means the path is open without Access.

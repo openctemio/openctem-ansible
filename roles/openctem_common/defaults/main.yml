@@ -35,3 +35,26 @@ openctem_compose: >-  # noqa: var-naming[no-role-prefix]
 openctem_wal_archive: false  # noqa: var-naming[no-role-prefix]
 openctem_wal_spool_dir: /var/lib/openctem-wal-spool  # noqa: var-naming[no-role-prefix]
 openctem_wal_archive_timeout: 300  # noqa: var-naming[no-role-prefix]
+
+# Outbound-only networks (the only stack networks with a route to the
+# internet): the API's and the tunnel connector's. The firewall role's egress
+# policy is keyed on these subnets.
+openctem_net_egress_api: 172.30.84  # noqa: var-naming[no-role-prefix]
+cloudflared_net_egress: 172.30.83  # noqa: var-naming[no-role-prefix]
+
+# Outbound policy of the stack's containers (roles/firewall, docs/FIREWALL.md):
+#   open        no restriction beyond the networks (the API can reach any address)
+#   restricted  containers on the outbound networks cannot reach private,
+#               shared (CGNAT), link-local/metadata, loopback or host-local
+#               addresses; the internet and the stack itself stay reachable.
+# Default: restricted for a hosted service (openctem_signup_mode: open, where
+# tenants are strangers), open otherwise. Applied by the firewall play.
+openctem_egress_policy: "{{ 'restricted' if (openctem_signup_mode | default('disabled')) == 'open' else 'open' }}"  # noqa: var-naming[no-role-prefix]
+# Operator-approved internal destinations (an internal SMTP relay, an
+# on-premises ticketing or identity server). Each item: cidr (IPv4, /24 or
+# narrower, not link-local), optional port, optional proto (default tcp).
+#   - { cidr: 192.0.2.25/32, port: 587 }
+openctem_egress_allow: []  # noqa: var-naming[no-role-prefix]
+# The host's own DNS resolvers (read when the rules are applied) stay
+# reachable on port 53: Docker's embedded resolver forwards to them.
+openctem_egress_allow_host_dns: true  # noqa: var-naming[no-role-prefix]
