@@ -45,6 +45,17 @@
     mode: '0700'
   when: openctem_wal_archive | bool and not ansible_check_mode
 
+# The API (uid 1000) appends to admin-audit.jsonl here (file sink); the backup
+# role archives the directory.
+- name: Administrators' audit sink directory (file mode)
+  ansible.builtin.file:
+    path: "{{ openctem_admin_audit_sink_dir }}"
+    state: directory
+    owner: '1000'
+    group: '1000'
+    mode: '0750'
+  when: openctem_admin_audit_sink == 'file' and not ansible_check_mode
+
 - name: Release files (gateway config, least-privilege SQL)
   ansible.builtin.import_tasks: release_files.yml
 

@@ -334,6 +334,14 @@ services:
 {% if openctem_captcha_turnstile_site_key | length > 0 %}
       CAPTCHA_TURNSTILE_SITE_KEY: {{ openctem_captcha_turnstile_site_key | string | to_json }}
 {% endif %}
+{% if openctem_admin_audit_sink == 'file' %}
+      ADMIN_AUDIT_SINK: file://{{ openctem_admin_audit_sink_container_dir }}/admin-audit.jsonl
+{% elif openctem_admin_audit_sink | length > 0 %}
+      ADMIN_AUDIT_SINK: {{ openctem_admin_audit_sink | to_json }}
+{% endif %}
+{% if openctem_admin_audit_sink | length > 0 and openctem_admin_audit_sink_head_interval | length > 0 %}
+      ADMIN_AUDIT_SINK_HEAD_INTERVAL: {{ openctem_admin_audit_sink_head_interval | to_json }}
+{% endif %}
 {% for key, value in openctem_api_env | dictsort %}
       {{ key }}: {{ value | string | to_json }}
 {% endfor %}
@@ -378,6 +386,9 @@ services:
       - datastore-tls:/datastore-tls:ro
       - api-data:/app/data
       - api-tmp:/tmp
+{% if openctem_admin_audit_sink == 'file' %}
+      - {{ openctem_admin_audit_sink_dir }}:{{ openctem_admin_audit_sink_container_dir }}
+{% endif %}
 {% if openctem_job_signer | bool %}
       - signer-socket:/run/openctem-signer
 {% endif %}

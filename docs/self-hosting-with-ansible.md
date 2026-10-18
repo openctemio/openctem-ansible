@@ -160,6 +160,30 @@ A rollback to a release without the flag needs nothing either: that release's
 `db-roles` runs the script without `admin_user`, which gives `openctem_app`
 its write on those tables back before the older API starts.
 
+## Administrators' audit sink
+
+A hosted service (`MANAGED_SERVICE: "true"` in `openctem_api_env`) must copy the
+platform administrators' audit chain out of the database. Set
+`openctem_admin_audit_sink` in the inventory:
+
+- `file`: the kit creates a host directory (default `/opt/openctem/admin-audit`,
+  owned by the API's uid, mode 0750), mounts it into the API and includes it in
+  every backup. It guards against database-level rewrites and leaves the host
+  with the backups.
+- `https://host/path`: the real off-box copy, recommended for a hosted service.
+  Create the HMAC key on the server (at least 32 bytes, mode 0600) and give the
+  same key to the receiver:
+
+  ```bash
+  sudo sh -c 'umask 077; openssl rand -hex 32 > /opt/openctem/secrets/admin_audit_sink_secret'
+  ```
+
+`openctem_admin_audit_sink_head_interval` (for example `5m`) sets how often the
+signed chain head is written. `syslog+tls://` is not supported by the kit yet.
+A release that requires the sink fails the play before any change when
+`MANAGED_SERVICE` is true and no sink is set. Details: the README, "Administrators'
+audit sink".
+
 ## Security model
 
 - The VM accepts no inbound connection except SSH from your administrator

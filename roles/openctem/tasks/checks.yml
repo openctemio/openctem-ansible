@@ -29,6 +29,9 @@
       openctem_api_env takes non-secret UPPER_CASE settings only, none of {{ openctem_api_env_reserved }};
       secrets are generated on the host.
 
+- name: The administrators' audit sink settings
+  ansible.builtin.import_tasks: audit_sink_checks.yml
+
 - name: The platform console settings
   ansible.builtin.import_tasks: console_checks.yml
 

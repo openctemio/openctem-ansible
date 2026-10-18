@@ -58,3 +58,9 @@ openctem_egress_allow: []  # noqa: var-naming[no-role-prefix]
 # The host's own DNS resolvers (read when the rules are applied) stay
 # reachable on port 53: Docker's embedded resolver forwards to them.
 openctem_egress_allow_host_dns: true  # noqa: var-naming[no-role-prefix]
+
+# Off-box copy of the platform administrators' audit chain (ADMIN_AUDIT_SINK,
+# README "Administrators' audit sink"). In `file` mode the API appends to a
+# file in this host directory (created by roles/openctem, owned by the API's
+# uid, included in every backup by roles/backup).
+openctem_admin_audit_sink_dir: "{{ openctem_root }}/admin-audit"  # noqa: var-naming[no-role-prefix]

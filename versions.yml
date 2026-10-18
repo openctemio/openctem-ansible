@@ -13,6 +13,9 @@
 # Release flags (omit when false):
 #   admin_plane: true      the release ships the console API listener and the gateway's console site files
 #   console_db_role: true  the release's least-privilege SQL knows the console's database role
+#   admin_audit_sink_required: true  the release refuses MANAGED_SERVICE=true without ADMIN_AUDIT_SINK;
+#                          the preflight then stops a managed inventory that sets no
+#                          openctem_admin_audit_sink. Set it on every release after v0.10.1.
 #   console_service: true  the release ships the platform console as its own service: image
 #                          ghcr.io/openctemio/openctem-console (add a `console:` digest next to the other
 #                          images; it is cosign-verified like them) and gateway/servers.common.

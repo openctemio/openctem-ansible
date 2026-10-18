@@ -1,0 +1,50 @@
+---
+# Administrators' audit sink settings (tests/audit-sink.sh runs this alone, with
+# the role defaults and versions.yml). Fails before the host is touched.
+- name: The sink setting is off, file or an https URL
+  vars:
+    openctem_audit_sink_url_re: '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?(/[A-Za-z0-9._~%/?&=+@:,;-]*)?$'
+  ansible.builtin.assert:
+    that:
+      - openctem_admin_audit_sink is string
+      - openctem_admin_audit_sink in ['', 'file'] or openctem_admin_audit_sink is match(openctem_audit_sink_url_re)
+      - openctem_admin_audit_sink_head_interval is string
+      - openctem_admin_audit_sink_head_interval == '' or openctem_admin_audit_sink_head_interval is match('^([0-9]+(ns|us|ms|s|m|h))+$')
+      - openctem_admin_audit_sink_head_interval == '' or openctem_admin_audit_sink != ''
+      - openctem_admin_audit_sink_dir is match('^/[A-Za-z0-9._/-]+$')
+    fail_msg: >-
+      openctem_admin_audit_sink must be '' (off), 'file' or an https:// URL (syslog+tls:// is not supported by
+      this kit yet); openctem_admin_audit_sink_head_interval empty or a duration such as 15m, and only with a sink;
+      openctem_admin_audit_sink_dir an absolute path.
+
+# A release that requires the sink refuses to start a hosted service without
+# one: stop here, not after the images changed.
+- name: A managed service has an administrators' audit sink
+  ansible.builtin.assert:
+    that: >-
+      not (openctem_releases[openctem_version].admin_audit_sink_required | default(false) | bool)
+      or not ((openctem_api_env.MANAGED_SERVICE | default('false') | string | lower) in ['1', 't', 'true'])
+      or openctem_admin_audit_sink != ''
+    fail_msg: >-
+      {{ openctem_version }} refuses to start with MANAGED_SERVICE=true and no ADMIN_AUDIT_SINK. Set
+      openctem_admin_audit_sink to an https:// URL (the off-box copy, recommended for a hosted service) or to
+      'file' (README, "Administrators' audit sink").
+  when: openctem_api_env is mapping
+
+- name: The https sink's HMAC key file on the server
+  ansible.builtin.stat:
+    path: "{{ openctem_secrets_dir }}/admin_audit_sink_secret"
+  register: openctem_audit_sink_secret
+  when: openctem_admin_audit_sink is match('^https:')
+
+- name: The https sink has a key of at least 32 bytes, readable by root only
+  ansible.builtin.assert:
+    that:
+      - ansible_check_mode or openctem_audit_sink_secret.stat.exists
+      - ansible_check_mode or openctem_audit_sink_secret.stat.size >= 32
+      - ansible_check_mode or openctem_audit_sink_secret.stat.mode in ['0600', '0400']
+    fail_msg: >-
+      openctem_admin_audit_sink is an https URL: create {{ openctem_secrets_dir }}/admin_audit_sink_secret on the
+      server (>= 32 bytes, mode 0600 or 0400): sudo sh -c 'umask 077; openssl rand -hex 32 > {{ openctem_secrets_dir }}/admin_audit_sink_secret'
+      and give the same key to the receiver.
+  when: openctem_admin_audit_sink is match('^https:')
