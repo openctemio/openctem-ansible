@@ -1,0 +1,4 @@
+# Verified false positives in the history (commit:file:rule:line): documentation
+# placeholders and test fixtures, none a real credential (history audit 2026-10-18).
+# Add a line only after confirming the match is not a real credential.
+1eb707210a2d316b14edfc752c70493b5d7d5e35:roles/infra_console/tasks/present.yml:generic-password:39
