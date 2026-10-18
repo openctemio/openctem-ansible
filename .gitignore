@@ -22,3 +22,13 @@ age-identity*.txt
 .venv/
 reports/
 .DS_Store
+
+# Secrets and runtime state: never committed
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+/data/
