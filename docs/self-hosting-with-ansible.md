@@ -62,6 +62,10 @@ flowchart LR
    Access, the sensor path answers 401 without a key, and the VM publishes no
    port.
 
+Step-by-step guides: [Install with Ansible](https://docs.openctem.io/install/ansible/),
+[with Cloudflare Tunnel and Access](https://docs.openctem.io/install/ansible-cloudflare/) and
+[without Cloudflare](https://docs.openctem.io/install/ansible-without-cloudflare/).
+
 The repository README is the full runbook. It covers each command, what each
 stage changes, backups and restore, upgrades with automatic rollback,
 troubleshooting (including Ubuntu 26.04's uutils coreutils and Docker with
@@ -70,8 +74,8 @@ ufw) and a hardening checklist.
 ## Platform console as its own service
 
 From a release flagged `console_service: true` in `versions.yml` (the release
-that ships the `openctem-console` image; no released version has it yet, and
-older releases keep today's behaviour), the platform console is its own
+that ships the `openctem-console` image: v0.10.1; older releases keep their
+behaviour), the platform console is its own
 service: another image, another process and another origin than the web
 console, at the **root** of its site (there is no `/admin` path). A flaw in a
 tenant-facing page cannot reach the administration plane, and the main host

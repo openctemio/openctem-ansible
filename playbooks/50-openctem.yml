@@ -10,6 +10,9 @@
   become: true
   gather_facts: true
   tags: [openctem]
+  # A changed tunnel route file must reach the running connector even when a
+  # later task fails and the release is rolled back.
+  force_handlers: true
   pre_tasks:
     - name: Skip unless apply_openctem is true
       ansible.builtin.meta: end_play
