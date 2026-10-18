@@ -10,3 +10,19 @@ backup_age_recipient: ''
 # Off-host copy, run after each encrypted backup with the new directory as $1.
 backup_offsite_command: ''
 backup_keep_days: 14
+
+# --- Continuous archiving (openctem_wal_archive: true, roles/openctem_common) ----------
+# rclone remote definition ([openctem-backup], type s3) with the access token:
+# YOU place it on the server, root:root mode 0400/0600. Never in the inventory.
+backup_wal_remote_conf: "{{ openctem_secrets_dir }}/backup_remote.conf"
+# Bucket and the path inside it (several stacks may share one bucket).
+backup_wal_bucket: ''
+backup_wal_prefix: "{{ openctem_project }}"
+# Point-in-time recovery window: base backups and WAL older than this (and
+# older than the newest base backup before the window) are deleted from the bucket.
+backup_wal_retention_days: 14
+backup_basebackup_on_calendar: 'Sun *-*-* 02:30:00'
+backup_wal_ship_interval: 1min
+# openctem-restore --pitr downloads WAL uploaded up to this long after the
+# target time (upload lag, then a margin).
+backup_pitr_fetch_slack_hours: 6

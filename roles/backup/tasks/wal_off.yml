@@ -1,0 +1,28 @@
+---
+# openctem_wal_archive is false: take down what an earlier run installed. The
+# objects already in the bucket stay (they are the owner's to delete).
+- name: Earlier continuous-archiving timers
+  ansible.builtin.stat:
+    path: /etc/systemd/system/openctem-wal-ship.timer
+  register: backup_wal_old
+
+- name: Stop the timers
+  ansible.builtin.systemd_service:
+    name: "{{ item }}"
+    enabled: false
+    state: stopped
+  loop: [openctem-wal-ship.timer, openctem-base-backup.timer]
+  when: backup_wal_old.stat.exists and not ansible_check_mode
+
+- name: Remove units and tools
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - /etc/systemd/system/openctem-wal-ship.service
+    - /etc/systemd/system/openctem-wal-ship.timer
+    - /etc/systemd/system/openctem-base-backup.service
+    - /etc/systemd/system/openctem-base-backup.timer
+    - /usr/local/sbin/openctem-wal-ship
+    - /usr/local/sbin/openctem-base-backup
+    - /usr/local/lib/openctem/wal-common.sh

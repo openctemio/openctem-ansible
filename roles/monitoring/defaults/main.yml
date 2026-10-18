@@ -1,6 +1,7 @@
 ---
 # Paths: roles/openctem_common; backup state as the backup role writes it.
 monitoring_backup_state_dir: "{{ backup_state_dir | default('/var/lib/openctem-backup') }}"
+monitoring_wal_spool_dir: "{{ openctem_wal_spool_dir | default('/var/lib/openctem-wal-spool') }}"
 monitoring_interval: 5min
 monitoring_disk_warn_percent: 85
 monitoring_backup_max_age_hours: 30
@@ -10,3 +11,9 @@ monitoring_external_probes: true
 monitoring_webhook_url: ''
 # Repeat an unchanged alert at most this often (seconds).
 monitoring_repeat_seconds: 3600
+# Continuous archiving (when the backup role installed it): alert when the oldest
+# WAL segment still waiting for upload is older than this, when the spool is
+# larger than this, or when the newest base backup is older than this.
+monitoring_wal_lag_minutes: 15
+monitoring_wal_spool_max_mb: 2048
+monitoring_basebackup_max_age_days: 8

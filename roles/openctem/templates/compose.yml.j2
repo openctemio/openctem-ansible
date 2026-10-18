@@ -483,6 +483,17 @@ services:
       - max_wal_size={{ openctem_pg_max_wal_size }}
       - -c
       - password_encryption=scram-sha-256
+{% if openctem_wal_archive | bool %}
+      # Continuous archiving: a finished segment is copied (and synced) into the
+      # spool, which the host's openctem-wal-ship encrypts and uploads. Succeeds
+      # when the identical file is already there (Postgres may retry).
+      - -c
+      - archive_mode=on
+      - -c
+      - archive_timeout={{ openctem_wal_archive_timeout | int }}
+      - -c
+      - "archive_command=if [ -e /wal-spool/%f ]; then cmp -s %p /wal-spool/%f; else cp %p /wal-spool/.%f.tmp && sync -f /wal-spool/.%f.tmp && mv /wal-spool/.%f.tmp /wal-spool/%f; fi"
+{% endif %}
     shm_size: {{ openctem_pg_shm_size }}
     environment:
       POSTGRES_USER: postgres
@@ -493,6 +504,9 @@ services:
     volumes:
       - postgres-data:/var/lib/postgresql/data
       - datastore-tls:/tls:ro
+{% if openctem_wal_archive | bool %}
+      - {{ openctem_wal_spool_dir }}:/wal-spool
+{% endif %}
     depends_on:
       datastore-tls:
         condition: service_completed_successfully

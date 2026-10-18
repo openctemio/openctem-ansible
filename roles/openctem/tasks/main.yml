@@ -34,6 +34,17 @@
     mode: '0755'
   when: openctem_releases[openctem_version].admin_plane | default(false) | bool
 
+# Postgres (uid 999) writes finished WAL segments here; root's openctem-wal-ship
+# empties it. Numeric owner: no user of that name exists on the host.
+- name: WAL spool directory (continuous archiving)
+  ansible.builtin.file:
+    path: "{{ openctem_wal_spool_dir }}"
+    state: directory
+    owner: '999'
+    group: '999'
+    mode: '0700'
+  when: openctem_wal_archive | bool and not ansible_check_mode
+
 - name: Release files (gateway config, least-privilege SQL)
   ansible.builtin.import_tasks: release_files.yml
 

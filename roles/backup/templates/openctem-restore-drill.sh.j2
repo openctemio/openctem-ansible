@@ -7,18 +7,40 @@
 #   sudo openctem-restore-drill                         newest local-mode backup
 #   sudo openctem-restore-drill <backup dir> <identity> an age backup
 #
+#   sudo openctem-restore-drill --pitr "<UTC time>|latest" <identity>
+#                                                       point-in-time recovery from the bucket
+#
+# --pitr downloads the base backup and WAL, recovers a throwaway Postgres to
+# the target and checks it; it also prints the time the recovery stopped at.
+# Run it monthly and record how long it took (that is the restore time).
+#
 # The identity (age private key) is the owner's: copy it here only for the
 # drill (e.g. scp to /root/drill.key, chmod 600) and delete it afterwards.
 set -euo pipefail
 umask 077
 # shellcheck source=/dev/null
 . /usr/local/lib/openctem/restore-common.sh
+w="$(mktemp -d /var/tmp/openctem-drill.XXXXXX)"
+name="openctem-restore-drill-$$"
+trap 'docker rm -f "$name" > /dev/null 2>&1 || true; docker volume rm "${vol:-none}" > /dev/null 2>&1 || true; rm -rf -- "$w"' EXIT
+if [ "${1:-}" = --pitr ]; then
+	[ -n "${2:-}" ] || die "usage: openctem-restore-drill --pitr \"<UTC time>|latest\" <identity>"
+	# shellcheck source=/dev/null
+	. /usr/local/lib/openctem/wal-common.sh
+	vol="${PROJECT}_drill-pitr-$$"
+	started="$(date +%s)"
+	pitr_stage "$2" "${3:-}" "$w" "$vol"
+	pitr_recover "$2" "$w" "$vol" "$name"
+	docker exec "$name" psql -U postgres -d openctem -qtAX -c "$count_sql" > "$w/restored.txt"
+	tables="$(wc -l < "$w/restored.txt")"
+	[ "$tables" -gt 0 ] || die "the recovered database has no tables"
+	log "database OK: $tables tables recovered"
+	log "point-in-time drill passed in $(( $(date +%s) - started ))s${3:+ - now delete the identity file $3}"
+	exit 0
+fi
 src="${1:-$(newest)}"
 id="${2:-}"
 [ -n "$src" ] || die "no backup found in $DEST"
-w="$(mktemp -d /var/tmp/openctem-drill.XXXXXX)"
-name="openctem-restore-drill-$$"
-trap 'docker rm -f "$name" > /dev/null 2>&1 || true; rm -rf -- "$w"' EXIT
 
 log "staging $src"
 stage "$src" "$id" "$w"

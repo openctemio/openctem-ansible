@@ -20,6 +20,22 @@ openctem_protected_projects: [openctemio, openctem-sensor, openctemio-obs]  # no
 openctem_compose: >-  # noqa: var-naming[no-role-prefix]
   docker compose -p {{ openctem_project }} --project-directory {{ openctem_root }}
   -f {{ openctem_root }}/compose.yml{{ (' -f ' ~ openctem_root ~ '/compose.cloudflared.yml') if openctem_ingress == 'cloudflared' else '' }}
+
+# Continuous archiving of the database (point-in-time recovery, README §5).
+# Off by default: it needs an S3-compatible bucket and an access token that
+# only the owner can provide, and the backup role's age recipient. When true:
+#   roles/openctem  Postgres archives each finished WAL segment into a spool
+#                   directory (archive_mode=on: a one-time Postgres restart)
+#   roles/backup    openctem-wal-ship encrypts and uploads the spool every
+#                   minute, openctem-base-backup takes a weekly base backup
+#                   and prunes the bucket, openctem-restore --pitr recovers.
+# A segment is also closed every openctem_wal_archive_timeout seconds while
+# the database is busy, which bounds the data loss (RPO) together with the
+# upload interval.
+openctem_wal_archive: false  # noqa: var-naming[no-role-prefix]
+openctem_wal_spool_dir: /var/lib/openctem-wal-spool  # noqa: var-naming[no-role-prefix]
+openctem_wal_archive_timeout: 300  # noqa: var-naming[no-role-prefix]
+
 # Outbound-only networks (the only stack networks with a route to the
 # internet): the API's and the tunnel connector's. The firewall role's egress
 # policy is keyed on these subnets.
