@@ -366,6 +366,51 @@ Upgrading from a kit that set `openctem_tenant_creation_mode`: remove it.
 `admin_only` is `openctem_signup_mode: disabled` (the default); `self_service`
 is `open`. The play stops while the old variable is set.
 
+### Administrators' audit sink
+
+The platform console keeps a hash-chained audit log of the platform
+administrators' actions in the database. The sink writes a copy outside the
+database, so a database-level rewrite is detectable. A hosted service
+(`MANAGED_SERVICE: "true"` in `openctem_api_env`) must have one: a release that
+requires it (`admin_audit_sink_required` in `versions.yml`) refuses to start
+without, and `playbooks/50-openctem.yml` fails in its checks, before changing
+anything.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `openctem_admin_audit_sink` | `''` (off) | `file`, or an `https://` URL |
+| `openctem_admin_audit_sink_head_interval` | `''` (API default, 15m) | interval of the signed chain-head records, e.g. `5m` |
+| `openctem_admin_audit_sink_dir` | `/opt/openctem/admin-audit` | `file` mode: host directory |
+
+- **`file`**: the kit creates `openctem_admin_audit_sink_dir` (owner uid 1000,
+  the API's user, mode 0750), mounts it into the API at
+  `/var/lib/openctem-admin-audit` and sets
+  `ADMIN_AUDIT_SINK=file:///var/lib/openctem-admin-audit/admin-audit.jsonl`.
+  `openctem-backup` archives the directory as `admin-audit.tar.gz`, so the copy
+  leaves the host with the (age-encrypted, off-host) backups. Restore it with
+  `tar -xzf` into the directory.
+- **`https://host/path`**: the API posts each record, signed with an HMAC key,
+  to a receiver you run. Create the key on the server first (the kit never
+  puts it in the inventory; the API has no `_FILE` variant, so the generated
+  `api.env` carries it like the other secrets):
+
+  ```bash
+  sudo sh -c 'umask 077; openssl rand -hex 32 > /opt/openctem/secrets/admin_audit_sink_secret'
+  ```
+
+  The file must be at least 32 bytes and mode 0600 or 0400; give the same key
+  to the receiver, which verifies the signature with it. The backup includes
+  the key in `secrets.tar.gz`.
+- `syslog+tls://` is **not supported by this kit yet** (the API needs CA and
+  client certificate files mounted into the container); the checks refuse it.
+
+Threat model. The `file` sink is on the same host as the database: it protects
+against rewrites inside the database and leaves the host with the backups, but
+anyone with root on the host can still edit both. An `https` receiver run by a
+different party (or at least on a different host and account) is the real
+off-box copy: use it for a hosted service. Neither mode stores a secret in the
+inventory, the compose file or git.
+
 ### Automatic coverage
 
 OpenCTEM (v0.9.6 and later, with fixes in v0.9.7) keeps each organization's
@@ -538,11 +583,12 @@ v0.10.1 too.
    - the other variables required in production (`DB_PASSWORD`,
      `REDIS_PASSWORD`, `REDIS_TLS_ENABLED`, `APP_ENCRYPTION_KEY`,
      `DB_SSLMODE`, `AUTH_COOKIE_SECURE`) are already set by the kit;
-   - `ADMIN_AUDIT_SINK_SECRET` is needed only with an `https://`
-     `ADMIN_AUDIT_SINK`, which the kit does not configure; the kit has no
-     `ADMIN_AUDIT_SINK_TOKEN`. Do not add either through `openctem_api_env`:
-     secret-looking names are refused, so configure a sink only outside the
-     kit and plan a secret file for it first;
+   - the administrators' audit sink (`ADMIN_AUDIT_SINK`) is configured by the
+     kit through `openctem_admin_audit_sink` (section "Administrators' audit
+     sink" below). A release that requires it (`admin_audit_sink_required` in
+     `versions.yml`) refuses to start with `MANAGED_SERVICE=true` and no sink,
+     and the preflight stops before the host is touched. Do not set
+     `ADMIN_AUDIT_SINK*` through `openctem_api_env` (refused);
    - v0.10.1 ships the platform console as its own service (image
      `openctem-console`, cosign-verified with the other images) and the
      gateway's console site, so `versions.yml` flags it `admin_plane`,
@@ -671,7 +717,7 @@ requirements.yml         exact collection versions
 inventories/example/     example inventory; copy it outside the repository
 docs/                    Cloudflare, firewall, docs-site page
 scripts/vendor-release.sh   add an OpenCTEM release
-tests/                   render.yml, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
+tests/                   render.yml, console.sh, audit-sink.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
 ```
 
 Tests never touch your workstation's containers: `tests/smoke.sh` and

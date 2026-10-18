@@ -58,6 +58,25 @@ openctem_signup_mode: disabled
 # Public Cloudflare Turnstile site key for open sign-up (the secret goes in
 # <openctem_secrets_dir>/captcha_turnstile_secret on the server; README.md).
 openctem_captcha_turnstile_site_key: ''
+# --- Platform administrators' audit sink (ADMIN_AUDIT_SINK) ---------------------------
+# A copy of the console's tamper-evident audit chain outside the database. A
+# release flagged admin_audit_sink_required in versions.yml refuses to start
+# with MANAGED_SERVICE=true (set in openctem_api_env) unless one is set.
+#   ''        off (default)
+#   'file'    append to <openctem_admin_audit_sink_dir>/admin-audit.jsonl on this
+#             host (bind-mounted into the API). Protects against rewrites in the
+#             database and travels with every backup; it is NOT an off-box copy
+#             while the backups stay on this host.
+#   'https://host/path'  POST to a receiver you run (the real off-box copy,
+#             recommended for a hosted service). Needs the HMAC key file
+#             <openctem_secrets_dir>/admin_audit_sink_secret (>= 32 bytes, 0600,
+#             created by you on the server: `openssl rand -hex 32`).
+# syslog+tls:// is not supported by this kit yet.
+openctem_admin_audit_sink: ''
+# Optional interval of the signed chain-head records (Go duration, API default 15m).
+openctem_admin_audit_sink_head_interval: ''
+# The file sink's path inside the API container (do not change).
+openctem_admin_audit_sink_container_dir: /var/lib/openctem-admin-audit
 # Extra NON-SECRET API settings (env_registry names), e.g.
 #   ASSET_COVERAGE_ENABLED: "false"      platform-wide off switch for automatic coverage
 #   ASSET_COVERAGE_DAILY_BUDGET: "2000"  attempts per organization per 24 h (default 5000)
@@ -67,7 +86,9 @@ openctem_api_env_reserved: [APP_ENV, APP_URL, SENSOR_PUBLIC_API_URL, SERVER_TRUS
                             DB_HOST, DB_PORT, DB_USER, DB_NAME, DB_SSLMODE, REDIS_HOST, REDIS_PORT, REDIS_TLS_ENABLED,
                             REDIS_TLS_CA_FILE, AUTH_COOKIE_SECURE, AUTH_COOKIE_DOMAIN, SIGNER_SOCKET, CORS_ALLOWED_ORIGINS,
                             FINGERPRINT_KEY, SIGNUP_MODE, TENANT_CREATION_MODE, CAPTCHA_TURNSTILE_SITE_KEY,
-                            ADMIN_LISTEN_ADDR, ADMIN_LISTEN_ALLOW_ALL_INTERFACES, ADMIN_ALLOWED_CIDRS]
+                            ADMIN_LISTEN_ADDR, ADMIN_LISTEN_ALLOW_ALL_INTERFACES, ADMIN_ALLOWED_CIDRS,
+                            ADMIN_AUDIT_SINK, ADMIN_AUDIT_SINK_HEAD_INTERVAL, ADMIN_AUDIT_SINK_SYSLOG_CA_FILE,
+                            ADMIN_AUDIT_SINK_SYSLOG_CLIENT_CERT, ADMIN_AUDIT_SINK_SYSLOG_CLIENT_KEY]
 
 # Names the API (v0.10.0) refuses to start with: never passed through openctem_api_env.
 openctem_api_env_removed: [TENANT_CREATION_MODE, AUTH_ALLOW_REGISTRATION, JIRA_WEBHOOK_SECRET,

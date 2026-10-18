@@ -1,0 +1,15 @@
+---
+# A release that requires the administrators' audit sink (stands in for the
+# first release after v0.10.1 until versions.yml has it).
+openctem_version: v0.98.0
+openctem_releases:
+  v0.98.0:
+    admin_plane: true
+    console_service: true
+    console_db_role: true
+    admin_audit_sink_required: true
+    api: ghcr.io/openctemio/openctem-api@sha256:1111111111111111111111111111111111111111111111111111111111111111
+    web: ghcr.io/openctemio/openctem-web@sha256:2222222222222222222222222222222222222222222222222222222222222222
+    gateway: ghcr.io/openctemio/openctem-gateway@sha256:3333333333333333333333333333333333333333333333333333333333333333
+    migrations: ghcr.io/openctemio/migrations@sha256:4444444444444444444444444444444444444444444444444444444444444444
+    console: ghcr.io/openctemio/openctem-console@sha256:5555555555555555555555555555555555555555555555555555555555555555

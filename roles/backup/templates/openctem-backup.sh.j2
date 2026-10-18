@@ -2,7 +2,8 @@
 # {{ ansible_managed }}
 # Daily OpenCTEM backup: pg_dump (custom format, checked with pg_restore
 # --list), the uploaded files (api-data volume), the job signer volumes when
-# present, the generated secrets (APP_ENCRYPTION_KEY decrypts stored
+# present, the administrators' audit sink directory (file mode), the generated
+# secrets (APP_ENCRYPTION_KEY decrypts stored
 # credentials: a dump without it is unusable) and the release state.
 #
 # Mode age   (/etc/openctem/backup-recipients.txt non-empty): every file is
@@ -15,6 +16,7 @@ umask 077
 
 SECRETS='{{ openctem_secrets_dir }}'
 STATE='{{ openctem_state_dir }}'
+AUDIT_DIR='{{ openctem_admin_audit_sink_dir }}'
 DEST='{{ backup_dir }}'
 BSTATE='{{ backup_state_dir }}'
 PG_IMAGE='{{ openctem_postgres_image }}'
@@ -69,8 +71,15 @@ for v in signer-keys signer-state; do
 done
 
 log "generated secrets (not the tunnel token: it is re-issued from Cloudflare)"
-tar -C "$SECRETS" -czf "$work/secrets.tar.gz" \
-	db_superuser_password db_migrate_password db_app_password db_console_password redis_password app_encryption_key fingerprint_key metrics_token
+secret_files=(db_superuser_password db_migrate_password db_app_password db_console_password redis_password app_encryption_key fingerprint_key metrics_token)
+# The https audit sink's HMAC key, when the operator created one.
+[ -f "$SECRETS/admin_audit_sink_secret" ] && secret_files+=(admin_audit_sink_secret)
+tar -C "$SECRETS" -czf "$work/secrets.tar.gz" "${secret_files[@]}"
+# File audit sink: the copy of the administrators' audit chain leaves the box with the backup.
+if [ -d "$AUDIT_DIR" ]; then
+	log "administrators' audit sink (file)"
+	tar -C "$AUDIT_DIR" -czf "$work/admin-audit.tar.gz" .
+fi
 deploy_files=()
 for f in compose.yml compose.cloudflared.yml .env; do
 	[ -f "$ROOT/$f" ] && deploy_files+=("$f")
