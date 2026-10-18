@@ -1,0 +1,160 @@
+# shellcheck shell=bash disable=SC2034
+# {{ ansible_managed }}
+# Shared by the continuous-archiving tools (sourced): openctem-wal-ship,
+# openctem-base-backup, openctem-restore --pitr, openctem-restore-drill --pitr.
+#
+# Bucket layout (everything but meta.json is encrypted to the age recipient on
+# this host; the matching identity stays off the host):
+#   <prefix>/wal/<segment>.gz.age               one WAL segment (gzip, then age)
+#   <prefix>/base/<UTC time>/base.tar.gz.age    base backup (pg_basebackup tar)
+#   <prefix>/base/<UTC time>/meta.json          written last: marks the base complete
+SPOOL='{{ openctem_wal_spool_dir }}'
+BSTATE='{{ backup_state_dir }}'
+WORK='{{ backup_state_dir }}/work'
+RCLONE_CONF='{{ backup_wal_remote_conf }}'
+RCLONE_IMAGE='{{ openctem_rclone_image }}'
+REMOTE='openctem-backup:{{ backup_wal_bucket }}/{{ backup_wal_prefix }}'
+RECIPIENTS=/etc/openctem/backup-recipients.txt
+RETENTION_DAYS='{{ backup_wal_retention_days | int }}'
+FETCH_SLACK_HOURS="${OPENCTEM_PITR_SLACK_HOURS:-{{ backup_pitr_fetch_slack_hours | int }}}"
+PG_IMAGE='{{ openctem_postgres_image }}'
+ROOT='{{ openctem_root }}'
+PROJECT='{{ openctem_project }}'
+case "$PROJECT" in
+''|{{ openctem_protected_projects | join('|') }}) echo "refusing compose project '$PROJECT'" >&2; exit 64 ;;
+esac
+{% raw %}
+wlog() { echo "$(basename "$0"): $*"; }
+wdie() { wlog "ERROR: $*" >&2; exit 1; }
+wcompose() {
+	local files=(-f "$ROOT/compose.yml")
+	[ -f "$ROOT/compose.cloudflared.yml" ] && files+=(-f "$ROOT/compose.cloudflared.yml")
+	docker compose -p "$PROJECT" --project-directory "$ROOT" "${files[@]}" "$@"
+}
+
+# rc <rclone args>: rclone from its pinned image on Docker's default network,
+# no capabilities, read-only root. Sees the remote definition (read-only) and
+# $WORK as /work, nothing else; the credentials never reach a command line.
+rc() {
+	docker run --rm -i --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges --memory 1g \
+		-e HOME=/tmp -e RCLONE_LOG_LEVEL=ERROR -e RCLONE_S3_NO_CHECK_BUCKET=true -e RCLONE_RETRIES=5 -e RCLONE_LOW_LEVEL_RETRIES=10 \
+		-v "$RCLONE_CONF:/config/rclone/rclone.conf:ro" -v "$WORK:/work" "$RCLONE_IMAGE" "$@"
+}
+
+wal_setup_check() {
+	[ -s "$RECIPIENTS" ] || wdie "$RECIPIENTS is empty: continuous archiving needs backup_age_recipient"
+	[ -r "$RCLONE_CONF" ] || wdie "no remote definition at $RCLONE_CONF"
+	command -v age > /dev/null || wdie "age is not installed"
+	mkdir -p "$WORK" "$BSTATE"
+	chmod 0700 "$WORK" "$BSTATE"
+}
+
+# --- Point-in-time recovery (restore and drill) -------------------------------------
+
+# pitr_target <text>: "latest", or a UTC time (2026-10-18 14:02:00 UTC, also with
+# a T, a Z or +00); sets PITR_PG ("2026-10-18 14:02:00+00") and PITR_COMPACT
+# ("20261018T140200Z", sorts like the base backup names).
+pitr_target() {
+	local t="$1"
+	if [ "$t" = latest ]; then PITR_PG=""; PITR_COMPACT="99999999T999999Z"; return 0; fi
+	local re='^([0-9]{4})-([0-9]{2})-([0-9]{2})[ T]([0-9]{2}):([0-9]{2}):([0-9]{2})( ?UTC|Z|\+00(:?00)?)$'
+	[[ "$t" =~ $re ]] || wdie "target time '$t' must be UTC, e.g. '2026-10-18 14:02:00 UTC' (or 'latest')"
+	local B=("${BASH_REMATCH[@]}")
+	PITR_PG="${B[1]}-${B[2]}-${B[3]} ${B[4]}:${B[5]}:${B[6]}+00"
+	PITR_COMPACT="${B[1]}${B[2]}${B[3]}T${B[4]}${B[5]}${B[6]}Z"
+}
+
+# pitr_stage <target> <identity> <work dir> <volume>: the newest complete base
+# backup finished before the target is unpacked into the (empty) docker volume,
+# the WAL needed on top of it is downloaded and decrypted into <work dir>/wal,
+# and recovery.signal is set. Nothing is started here.
+pitr_stage() {
+	local target="$1" id="$2" w="$3" vol="$4" b="" cand name meta start_wal finished sha
+	[ -n "$id" ] && [ -r "$id" ] || wdie "pass the age identity file (kept off this host; delete it after use)"
+	wal_setup_check
+	pitr_target "$target"
+	wlog "listing base backups in the bucket"
+	local bases=()
+	mapfile -t bases < <(rc lsf -R --files-only --include meta.json "$REMOTE/base/" | sed 's#/meta.json$##' | sort)
+	[ "${#bases[@]}" -gt 0 ] || wdie "no complete base backup in the bucket"
+	for cand in "${bases[@]}"; do
+		meta="$(rc cat "$REMOTE/base/$cand/meta.json")"
+		finished="$(sed -n 's/.*"finished":"\([0-9TZ]*\)".*/\1/p' <<< "$meta")"
+		[ -n "$finished" ] || continue
+		if [[ "$finished" < "$PITR_COMPACT" || "$finished" == "$PITR_COMPACT" ]]; then b="$cand"; fi
+	done
+	[ -n "$b" ] || wdie "no base backup finished before $target (the oldest is ${bases[0]})"
+	meta="$(rc cat "$REMOTE/base/$b/meta.json")"
+	start_wal="$(sed -n 's/.*"start_wal":"\([0-9A-F]*\)".*/\1/p' <<< "$meta")"
+	sha="$(sed -n 's/.*"sha256":"\([0-9a-f]*\)".*/\1/p' <<< "$meta")"
+	[ "${#start_wal}" = 24 ] && [ "${#sha}" = 64 ] || wdie "base backup $b: unreadable meta.json"
+	wlog "base backup $b (starts at WAL $start_wal)"
+
+	mkdir -p "$WORK"
+	rc copyto "$REMOTE/base/$b/base.tar.gz.age" /work/pitr-base.tar.gz.age
+	[ "$(sha256sum < "$WORK/pitr-base.tar.gz.age" | cut -d' ' -f1)" = "$sha" ] || wdie "base backup $b: checksum does not match meta.json"
+	age -d -i "$id" -o "$w/base.tar.gz" "$WORK/pitr-base.tar.gz.age"
+	rm -f "$WORK/pitr-base.tar.gz.age"
+	docker volume create "$vol" > /dev/null
+	docker run --rm -i --network none -v "$vol:/pgdata" "$PG_IMAGE" \
+		sh -c 'tar -xzf - -C /pgdata && touch /pgdata/recovery.signal && chown -R 999:999 /pgdata && chmod 0700 /pgdata' < "$w/base.tar.gz"
+	rm -f "$w/base.tar.gz"
+
+	# WAL: every segment from the base's start on, uploaded up to FETCH_SLACK_HOURS
+	# after the target (the file time is the upload time). A missing segment makes
+	# recovery stop with an error; it never recovers silently to the wrong time.
+	mkdir -p "$w/wal"
+	local until="9999-99-99 99:99:99" n=0 line seg
+	if [ "$PITR_PG" != "" ]; then
+		local t_epoch
+		t_epoch="$(date -u -d "${PITR_PG%+00} UTC" +%s)"
+		until="$(date -u -d "@$((t_epoch + FETCH_SLACK_HOURS * 3600))" '+%Y-%m-%d %H:%M:%S')"
+	fi
+	while IFS='|' read -r name mtime; do
+		case "$name" in *.gz.age) ;; *) continue ;; esac
+		seg="${name:8:16}"
+		case "$name" in
+		*.history.gz.age) ;;
+		*) [[ "$name" =~ ^[0-9A-F]{24} ]] || continue; [[ "$seg" < "${start_wal:8:16}" ]] && continue ;;
+		esac
+		[[ "$mtime" > "$until" ]] && continue
+		# rc runs docker -i: without this it would swallow the rest of the listing.
+		rc copyto "$REMOTE/wal/$name" "/work/pitr-wal.gz.age" < /dev/null
+		age -d -i "$id" "$WORK/pitr-wal.gz.age" | gzip -dc > "$w/wal/${name%.gz.age}"
+		[ -s "$w/wal/${name%.gz.age}" ] || wdie "WAL file $name decrypted to nothing"
+		n=$((n + 1))
+	done < <(rc lsf --format pt --separator '|' "$REMOTE/wal/" | sort)
+	rm -f "$WORK/pitr-wal.gz.age"
+	chmod -R a+rX "$w/wal"
+	[ "$n" -gt 0 ] || wdie "no WAL in the bucket after $start_wal"
+	wlog "$n WAL file(s) fetched"
+}
+
+# pitr_recover <target> <work dir> <volume> <container name>: starts a throwaway
+# Postgres (no network) on the staged volume, replays to the target, promotes,
+# and leaves it running. The caller removes the container.
+pitr_recover() {
+	local target="$1" w="$2" vol="$3" name="$4" i st
+	local args=(-c "restore_command=cp /wal-archive/%f %p" -c recovery_target_action=promote -c archive_mode=off -c hot_standby=off -c listen_addresses=)
+	[ -n "$PITR_PG" ] && args+=(-c "recovery_target_time=$PITR_PG")
+	# The WAL goes in with docker cp (through the client), not a bind mount: the
+	# path is then right wherever this script runs.
+	docker create --name "$name" --network none -v "$vol:/var/lib/postgresql/data" "$PG_IMAGE" postgres "${args[@]}" > /dev/null
+	docker cp "$w/wal/." "$name:/wal-archive"
+	docker start "$name" > /dev/null
+	wlog "replaying WAL to ${PITR_PG:-the end of the archive}"
+	for i in $(seq 1 1800); do
+		st="$(docker inspect -f '{{.State.Status}}' "$name" 2> /dev/null || echo gone)"
+		if [ "$st" != running ]; then
+			docker logs --tail 30 "$name" >&2 2>&1 || true
+			wdie "recovery container $st before finishing (WAL missing, or the target is before the base backup ended)"
+		fi
+		if [ "$(docker exec "$name" psql -U postgres -d postgres -qtAX -c 'SELECT pg_is_in_recovery()' 2> /dev/null || true)" = f ]; then
+			docker logs "$name" 2>&1 | grep -E 'recovery stopping|last completed transaction' | sed 's/^/  /' || true
+			return 0
+		fi
+		sleep 2
+	done
+	wdie "recovery did not finish in an hour"
+}
+{% endraw %}

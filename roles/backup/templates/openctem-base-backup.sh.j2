@@ -1,0 +1,95 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Base backup of the whole database cluster for point-in-time recovery:
+# pg_basebackup (tar, with the WAL it needs) -> gzip -> age -> bucket, then
+# meta.json (written last: marks it complete), then the bucket is pruned to the
+# retention window ({{ backup_wal_retention_days }} days; the newest base backup older than the window stays,
+# it is the anchor of the window's first day). Weekly by openctem-base-backup.timer.
+# shellcheck disable=SC2154,SC2034 # settings come from wal-common.sh
+set -euo pipefail
+umask 077
+{% raw %}
+# shellcheck source=/dev/null
+. /usr/local/lib/openctem/wal-common.sh
+wal_setup_check
+exec 7> "$BSTATE/base-backup.lock"
+flock -n 7 || wdie "another base backup is running"
+pg="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter label=com.docker.compose.service=postgres | head -n 1)"
+[ -n "$pg" ] || wdie "the postgres container of $PROJECT is not running"
+[ "$(docker exec "$pg" psql -U postgres -d postgres -qtAX -c 'SHOW archive_mode')" = on ] || wdie "archive_mode is off: set openctem_wal_archive and run the openctem play"
+
+start="$(date -u +%Y%m%dT%H%M%SZ)"
+dir="$WORK/base-$start"
+mkdir -p "$WORK"; mkdir -m 0700 "$dir"
+trap 'echo 1 > "$BSTATE/base_last_exit"; wlog "FAILED"; rm -rf -- "$dir"; rc purge "$REMOTE/base/$start" > /dev/null 2>&1 || true' ERR
+trap 'rm -rf -- "$dir"' EXIT
+
+wlog "pg_basebackup"
+docker exec "$pg" pg_basebackup -U postgres -D - -Ft -X fetch --checkpoint=fast --no-password | gzip -c > "$dir/base.tar.gz"
+gzip -t "$dir/base.tar.gz"
+start_wal="$(tar -xzOf "$dir/base.tar.gz" backup_label | sed -n 's/^START WAL LOCATION: .*(file \([0-9A-F]\{24\}\)).*/\1/p')"
+[ "${#start_wal}" = 24 ] || wdie "no start WAL in the backup label"
+age -R "$RECIPIENTS" -o "$dir/base.tar.gz.age" "$dir/base.tar.gz"
+rm -f "$dir/base.tar.gz"
+sha="$(sha256sum < "$dir/base.tar.gz.age" | cut -d' ' -f1)"
+wlog "uploading $(du -h "$dir/base.tar.gz.age" | cut -f1)"
+rc copyto "/work/base-$start/base.tar.gz.age" "$REMOTE/base/$start/base.tar.gz.age"
+# What the bucket holds must be what was encrypted here.
+rc cat "$REMOTE/base/$start/base.tar.gz.age" | sha256sum | grep -q "^$sha " || wdie "the uploaded base backup does not match its checksum"
+finished="$(date -u +%Y%m%dT%H%M%SZ)"
+printf '{"finished":"%s","start_wal":"%s","sha256":"%s"}\n' "$finished" "$start_wal" "$sha" | rc rcat "$REMOTE/base/$start/meta.json"
+date +%s > "$BSTATE/base_last_success"
+echo 0 > "$BSTATE/base_last_exit"
+wlog "OK base backup $start (WAL from $start_wal)"
+trap - ERR
+
+# --- Retention ---------------------------------------------------------------------
+ago() { date -u -d "@$(( $(date +%s) - $1 * 86400 ))" +%Y%m%dT%H%M%SZ; }
+cutoff="$(ago "$RETENTION_DAYS")"
+bases=()
+mapfile -t bases < <(rc lsf -R --files-only --include meta.json "$REMOTE/base/" | sed 's#/meta.json$##' | sort)
+keep=() drop=() anchor="" anchor_seg="" minseg=""
+for b in "${bases[@]}"; do
+	meta="$(rc cat "$REMOTE/base/$b/meta.json")"
+	fin="$(sed -n 's/.*"finished":"\([0-9TZ]*\)".*/\1/p' <<< "$meta")"
+	sw="$(sed -n 's/.*"start_wal":"\([0-9A-F]*\)".*/\1/p' <<< "$meta")"
+	[ -n "$fin" ] && [ "${#sw}" = 24 ] || { wlog "WARNING: base backup $b has an unreadable meta.json; kept, not pruned"; keep+=("$b"); continue; }
+	if [[ "$fin" < "$cutoff" ]]; then
+		[ -n "$anchor" ] && drop+=("$anchor")
+		anchor="$b"; anchor_seg="${sw:8:16}"
+	else
+		keep+=("$b")
+		[ -z "$minseg" ] || [[ "${sw:8:16}" < "$minseg" ]] && minseg="${sw:8:16}"
+	fi
+done
+if [ -n "$anchor" ]; then
+	keep+=("$anchor")
+	[ -z "$minseg" ] || [[ "$anchor_seg" < "$minseg" ]] && minseg="$anchor_seg"
+fi
+for b in "${drop[@]:-}"; do
+	[ -n "$b" ] || continue
+	wlog "retention: removing base backup $b"
+	rc purge "$REMOTE/base/$b"
+done
+# Base backups that never completed (no meta.json) and are over a day old.
+yesterday="$(ago 1)"
+while read -r d; do
+	d="${d%/}"
+	case " ${bases[*]} " in *" $d "*) continue ;; esac
+	[[ "$d" < "$yesterday" ]] && { wlog "retention: removing incomplete base backup $d"; rc purge "$REMOTE/base/$d" < /dev/null; }
+done < <(rc lsf --dirs-only "$REMOTE/base/")
+# WAL older than the oldest kept base backup's start cannot be used any more.
+if [ -n "$minseg" ]; then
+	: > "$WORK/prune.lst"
+	while read -r n; do
+		case "$n" in *.history.gz.age) continue ;; esac
+		[[ "$n" =~ ^[0-9A-F]{24} ]] || continue
+		[[ "${n:8:16}" < "$minseg" ]] && echo "$n" >> "$WORK/prune.lst"
+	done < <(rc lsf "$REMOTE/wal/")
+	if [ -s "$WORK/prune.lst" ]; then
+		wlog "retention: removing $(wc -l < "$WORK/prune.lst") WAL file(s) before $minseg"
+		rc delete "$REMOTE/wal" --files-from /work/prune.lst
+	fi
+	rm -f "$WORK/prune.lst"
+fi
+{% endraw %}

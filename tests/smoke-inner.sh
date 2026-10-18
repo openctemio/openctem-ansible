@@ -33,10 +33,15 @@ cp "$work/render/gateway/modes/http.site" "$rel/gateway/modes/http.site"
 cp "$work/render/compose.yml" "$work/"
 echo "$version" > "$work/state/deployed-version"
 mkdir -p /usr/local/sbin /usr/local/lib/openctem /etc/openctem
-for s in openctem-secrets openctem-verify openctem-backup openctem-restore openctem-restore-drill; do
+for s in openctem-secrets openctem-verify openctem-backup openctem-restore openctem-restore-drill openctem-wal-ship openctem-base-backup; do
 	install -m 0755 "$work/render/scripts/$s" "/usr/local/sbin/$s"
 done
 cp "$work/render/scripts/restore-common.sh" /usr/local/lib/openctem/restore-common.sh
+cp "$work/render/scripts/wal-common.sh" /usr/local/lib/openctem/wal-common.sh
+# Where Postgres puts finished WAL segments (the role makes it owned by uid 999).
+mkdir -p "$work/wal-spool"
+chown 999:999 "$work/wal-spool"
+chmod 0700 "$work/wal-spool"
 
 # Helper: an Ubuntu 26.04 container (uutils coreutils) on the DinD daemon.
 ubuntu() {
@@ -105,3 +110,51 @@ ubuntu "
 "
 say "verify after restore"
 openctem-verify
+
+say "continuous archiving and point-in-time recovery (fake bucket, Ubuntu 26.04)"
+rclone_image="$(sed -n "s/^RCLONE_IMAGE='\(.*\)'/\1/p" /usr/local/lib/openctem/wal-common.sh)"
+mkdir -p "$work/s3data/smoke-bucket"
+docker run -d --name smoke-s3 -v "$work/s3data:/data" "$rclone_image" serve s3 /data --addr :9000 --auth-key AKSMOKE,SKSMOKE > /dev/null
+s3ip="$(docker inspect -f '{{.NetworkSettings.IPAddress}}' smoke-s3)"
+(umask 077; printf '[openctem-backup]\ntype = s3\nprovider = Other\naccess_key_id = AKSMOKE\nsecret_access_key = SKSMOKE\nendpoint = http://%s:9000\n' "$s3ip" > "$work/secrets/backup_remote.conf")
+sleep 3
+sql() { dc exec -T postgres psql -U postgres -d openctem -qtAX -c "$1"; }
+[ "$(sql 'SHOW archive_mode')" = on ] || { echo "archive_mode is not on"; exit 1; }
+sql "DROP TABLE IF EXISTS pitr_marker; CREATE TABLE pitr_marker (n int NOT NULL, at timestamptz NOT NULL DEFAULT now())" > /dev/null
+# A new key: the one of the earlier step died with its container.
+ubuntu "
+	age-keygen -o $work/pitr-identity.txt 2> /dev/null
+	age-keygen -y $work/pitr-identity.txt > /etc/openctem/backup-recipients.txt
+	echo '-- base backup'
+	openctem-base-backup
+"
+sleep 2
+sql "INSERT INTO pitr_marker (n) VALUES (1)" > /dev/null
+sleep 4
+target="$(sql "SELECT to_char(now() AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS')") UTC"
+echo "  target time: $target"
+sleep 4
+sql "INSERT INTO pitr_marker (n) VALUES (2)" > /dev/null
+sql "SELECT pg_switch_wal()" > /dev/null
+for _ in $(seq 1 30); do [ -n "$(find "$work/wal-spool" -maxdepth 1 -type f -name '0*' | head -n 1)" ] && break; sleep 1; done
+ubuntu "
+	echo '-- WAL upload'
+	openctem-wal-ship
+	[ -z \"\$(find $work/wal-spool -maxdepth 1 -type f -name '0*')\" ] || { echo 'spool not emptied'; exit 1; }
+	echo '-- the bucket holds only encrypted objects'
+	if grep -rIl 'CREATE TABLE\|PGDMP\|pitr_marker' $work/s3data > /dev/null 2>&1; then echo 'plaintext in the bucket'; exit 1; fi
+	echo '-- drill refuses: no identity, a time before the first base backup'
+	if openctem-restore-drill --pitr latest 2> /dev/null; then echo 'drill ran without identity'; exit 1; fi
+	if openctem-restore-drill --pitr '2000-01-01 00:00:00 UTC' $work/pitr-identity.txt 2> /dev/null; then echo 'drill accepted a time before the first base backup'; exit 1; fi
+	echo '-- drill to the target and to the end of the archive'
+	openctem-restore-drill --pitr '$target' $work/pitr-identity.txt
+	openctem-restore-drill --pitr latest $work/pitr-identity.txt
+	echo '-- restore to the target over the running stack'
+	openctem-restore --pitr '$target' $work/pitr-identity.txt --yes
+"
+got="$(sql "SELECT string_agg(n::text, ',' ORDER BY n) FROM pitr_marker")"
+[ "$got" = 1 ] || { echo "after the point-in-time restore pitr_marker holds '$got', want only 1"; exit 1; }
+echo "  OK: the point-in-time restore brought back the state between the two transactions"
+say "verify after the point-in-time restore"
+openctem-verify
+docker rm -f smoke-s3 > /dev/null

@@ -19,7 +19,10 @@
 # copy them into DinD, then inside DinD: secrets with the role's script in an
 # Ubuntu 26.04 container (uutils), stack up (no cloudflared: no real token),
 # openctem-verify, the trusted-proxy check, backups in local and age mode,
-# restore drill, full restore, verify again.
+# restore drill, full restore, verify again; then continuous archiving against
+# a fake S3 bucket (rclone serve s3 in DinD): base backup, WAL upload, a
+# point-in-time drill, and a point-in-time restore that must bring back the
+# state between two marked transactions.
 #
 # Env: ANSIBLE_PLAYBOOK (default ansible-playbook), DIND_IMAGE, KEEP=1 keeps
 # the DinD container for inspection (remove it yourself by its printed name).
@@ -53,7 +56,9 @@ trap cleanup EXIT
 echo "== render $version (no Docker)"
 "$ap" "$kit/tests/render.yml" -e "render_dir=$render" -e openctem_root=/work -e openctem_project=octsmoke \
 	-e openctem_state_dir=/work/state -e backup_dir=/work/backups -e backup_state_dir=/work/bstate \
-	-e openctem_app_host=ctem.example.com < /dev/null > "$render/render.log" 2>&1 || { tail -n 30 "$render/render.log"; exit 1; }
+	-e openctem_app_host=ctem.example.com \
+	-e openctem_wal_archive=true -e openctem_wal_spool_dir=/work/wal-spool -e backup_wal_bucket=smoke-bucket \
+	-e backup_wal_remote_conf=/work/secrets/backup_remote.conf < /dev/null > "$render/render.log" 2>&1 || { tail -n 30 "$render/render.log"; exit 1; }
 
 echo "== start isolated DinD ($dind_image)"
 docker network create --internal=false "$net" > /dev/null

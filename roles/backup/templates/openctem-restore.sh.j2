@@ -5,6 +5,13 @@
 # Stops cloudflared, gateway, web and api while it runs.
 #
 #   sudo openctem-restore <backup dir> [identity] --yes [--with-secrets]
+#   sudo openctem-restore --pitr "<UTC time>|latest" <identity> --yes
+#
+# --pitr recovers the database to a point in time from the continuous archive
+# in the bucket (base backup + WAL, docs/BACKUP-PITR.md): a throwaway Postgres
+# without network replays the WAL to the target, its dump replaces the
+# database below. The stack keeps running until the recovery has succeeded.
+# Uploaded files and secrets are not part of it (nightly backups hold them).
 #
 # --with-secrets also restores the generated secrets (needed on a NEW host:
 # APP_ENCRYPTION_KEY must match the database), except the Postgres superuser
@@ -16,7 +23,14 @@ set -euo pipefail
 umask 077
 # shellcheck source=/dev/null
 . /usr/local/lib/openctem/restore-common.sh
-src="${1:-}"; shift || true
+pitr=""
+if [ "${1:-}" = --pitr ]; then
+	pitr="${2:-}"; [ -n "$pitr" ] || die "usage: openctem-restore --pitr \"<UTC time>|latest\" <identity> --yes"
+	shift 2
+	src="point-in-time $pitr"
+else
+	src="${1:-}"; shift || true
+fi
 id=""; yes=no; with_secrets=no
 for a in "$@"; do
 	case "$a" in
@@ -25,14 +39,29 @@ for a in "$@"; do
 	*) id="$a" ;;
 	esac
 done
-[ -n "$src" ] || die "usage: openctem-restore <backup dir> [identity] --yes [--with-secrets]"
+[ -n "$src" ] || die "usage: openctem-restore <backup dir> [identity] --yes [--with-secrets] | --pitr <time> <identity> --yes"
+[ -z "$pitr" ] || [ "$with_secrets" = no ] || die "--with-secrets is not available with --pitr (secrets come from a nightly backup)"
 [ "$yes" = yes ] || die "this replaces the database and files of the running stack; add --yes"
 w="$(mktemp -d /var/tmp/openctem-restore.XXXXXX)"
 trap 'rm -rf -- "$w"' EXIT
-stage "$src" "$id" "$w"
-running="$(cat '{{ openctem_state_dir }}/deployed-version' 2> /dev/null || echo unknown)"
-if [ "$(cat "$w/VERSION")" != "$running" ]; then
-	log "WARNING: backup from $(cat "$w/VERSION"), stack runs $running; restore with the backup's release, then upgrade"
+if [ -n "$pitr" ]; then
+	# shellcheck source=/dev/null
+	. /usr/local/lib/openctem/wal-common.sh
+	vol="${PROJECT}_pitr-$$"; cname="openctem-pitr-$$"
+	trap 'docker rm -f "$cname" > /dev/null 2>&1 || true; docker volume rm "$vol" > /dev/null 2>&1 || true; rm -rf -- "$w"' EXIT
+	pitr_stage "$pitr" "$id" "$w" "$vol"
+	pitr_recover "$pitr" "$w" "$vol" "$cname"
+	docker exec "$cname" pg_dump -U postgres -d openctem -Fc --no-owner > "$w/openctem.dump"
+	[ -s "$w/openctem.dump" ] || die "empty dump of the recovered database"
+	docker run --rm -i --network none "$PG_IMAGE" pg_restore --list < "$w/openctem.dump" > /dev/null
+	docker rm -f "$cname" > /dev/null
+	log "recovered; replacing the live database"
+else
+	stage "$src" "$id" "$w"
+	running="$(cat '{{ openctem_state_dir }}/deployed-version' 2> /dev/null || echo unknown)"
+	if [ "$(cat "$w/VERSION")" != "$running" ]; then
+		log "WARNING: backup from $(cat "$w/VERSION"), stack runs $running; restore with the backup's release, then upgrade"
+	fi
 fi
 
 # The services running now come back at the end; the front ones stop meanwhile.
@@ -74,11 +103,13 @@ restore_volume() { # restore_volume <volume> <archive>
 	docker run --rm -i --network none -v "${PROJECT}_$1:/v" "$PG_IMAGE" \
 		sh -c 'find /v -mindepth 1 -delete && tar -C /v -xzf -' < "$2"
 }
-log "restoring uploaded files"
-restore_volume api-data "$w/api-data.tar.gz"
-for v in signer-keys signer-state; do
-	[ -f "$w/$v.tar.gz" ] && docker volume inspect "${PROJECT}_$v" > /dev/null 2>&1 && { log "restoring $v"; restore_volume "$v" "$w/$v.tar.gz"; }
-done
+if [ -z "$pitr" ]; then
+	log "restoring uploaded files"
+	restore_volume api-data "$w/api-data.tar.gz"
+	for v in signer-keys signer-state; do
+		[ -f "$w/$v.tar.gz" ] && docker volume inspect "${PROJECT}_$v" > /dev/null 2>&1 && { log "restoring $v"; restore_volume "$v" "$w/$v.tar.gz"; }
+	done
+fi
 
 log "re-applying roles (db-roles), starting what ran before"
 dc up -d --force-recreate redis > /dev/null

@@ -136,6 +136,9 @@
     daemon_reload: "{{ backup_units.changed }}"
   when: not ansible_check_mode
 
+- name: Continuous archiving (point-in-time recovery)
+  ansible.builtin.include_tasks: "{{ 'wal.yml' if openctem_wal_archive | bool else 'wal_off.yml' }}"
+
 - name: Run a backup now (-e backup_run_now=true)
   ansible.builtin.systemd_service:
     name: openctem-backup.service
@@ -145,6 +148,7 @@
 - name: Summary
   ansible.builtin.debug:
     msg: >-
+      {{ ('Continuous archiving ON to bucket ' ~ backup_wal_bucket ~ '. ' if openctem_wal_archive | bool else '') }}
       {{ 'Backups: ENCRYPTED to ' ~ backup_age_recipient[:12] ~ '... in ' ~ backup_dir
          ~ ('; off-host copy ON' if backup_offsite_command | length > 0 else '; WARNING: NOT off-host (backup_offsite_command empty)')
          if backup_mode == 'age' else

@@ -445,6 +445,12 @@ the database roles, starts what was running, verifies):
 sudo openctem-restore /var/backups/openctem/<UTC time> [/root/drill.key] --yes
 ```
 
+**Continuous archiving and point-in-time recovery** (off by default; needs an
+S3-compatible bucket and its access key, which only you can provide): the
+database ships every WAL segment, encrypted, to the bucket, and
+`openctem-restore --pitr "<UTC time>"` recovers to a time. RPO about 6
+minutes. See [docs/BACKUP-PITR.md](docs/BACKUP-PITR.md).
+
 On a **new host**, deploy the backup's release first (`VERSION`), then add
 `--with-secrets`: it restores the generated secrets (so `APP_ENCRYPTION_KEY`
 matches the data) except the new host's own Postgres superuser password. Rerun
