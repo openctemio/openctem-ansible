@@ -48,6 +48,10 @@ jobs:
         run: ansible-playbook tests/render.yml -e render_dir="$RUNNER_TEMP/render"
       - name: Platform console as its own service (fixture release, site modes, validation)
         run: tests/console.sh "$RUNNER_TEMP/console"
+      - name: Tunnel connector is recreated when its route file changes (stub docker)
+        run: |
+          sudo apt-get install -y -qq fakeroot > /dev/null
+          tests/cloudflared-restart.sh "$RUNNER_TEMP/cloudflared"
       - name: Rendered settings (FINGERPRINT_KEY, SIGNUP_MODE, no TENANT_CREATION_MODE)
         run: |
           set -e

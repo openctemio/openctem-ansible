@@ -56,6 +56,7 @@
     group: root
     mode: '0644'
   when: cloudflared_management == 'local'
+  notify: Recreate cloudflared
 
 - name: Compose fragment for the connector
   ansible.builtin.template:

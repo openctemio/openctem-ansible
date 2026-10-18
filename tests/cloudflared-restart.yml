@@ -1,0 +1,12 @@
+---
+# Runs roles/cloudflared against localhost with a stub `docker` (see
+# tests/cloudflared-restart.sh). Touches no real host.
+- name: Cloudflared role with a stub docker
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  force_handlers: true
+  vars_files:
+    - vars.yml
+  roles:
+    - role: cloudflared
