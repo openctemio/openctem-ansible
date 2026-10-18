@@ -1,0 +1,14 @@
+---
+# Runs only the administrators' audit sink checks of roles/openctem (tests/audit-sink.sh).
+- name: Audit sink checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/openctem/defaults/main.yml
+    - ../versions.yml
+    - vars.yml
+  tasks:
+    - name: Checks
+      ansible.builtin.import_tasks: ../roles/openctem/tasks/audit_sink_checks.yml
