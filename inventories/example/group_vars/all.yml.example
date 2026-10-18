@@ -11,7 +11,7 @@
 openctem_app_host: ctem.example.com
 
 # --- Release (must be a key of openctem_releases in versions.yml) ------------------
-openctem_version: v0.10.1
+openctem_version: v0.11.0
 
 # --- Ingress -----------------------------------------------------------------------
 # cloudflared (default): Cloudflare Tunnel, no inbound port at all.
