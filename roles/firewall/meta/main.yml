@@ -7,4 +7,5 @@ galaxy_info:
   platforms:
     - name: Ubuntu
       versions: [all]
-dependencies: []
+dependencies:
+  - role: openctem_common

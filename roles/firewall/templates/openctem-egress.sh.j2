@@ -1,0 +1,111 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Outbound policy of the OpenCTEM stack's containers (docs/FIREWALL.md).
+#
+# Containers on the stack's outbound networks (the API's, the tunnel
+# connector's) may reach the internet and nothing private: not the operator's
+# LAN (RFC 1918), shared address space (CGNAT), link-local and cloud metadata
+# (169.254/16), loopback, nor this host's own addresses. Allowed on top: the
+# operator's approved destinations and the host's DNS resolvers.
+# Intra-stack traffic is not affected: it runs on other networks, and this
+# policy matches only packets whose SOURCE is an outbound network.
+#
+#   openctem-egress apply    (re)write the rules; idempotent (boot, Docker restart)
+#   openctem-egress remove   delete the rules and the chains
+#   openctem-egress status   show the rules and their packet counters
+#
+# Rules live in two chains of their own, jumped to FIRST from DOCKER-USER
+# (forwarded traffic: LAN, internet, metadata) and INPUT (traffic to the host
+# itself), and are loaded in one atomic iptables-restore.
+set -euo pipefail
+FWD=OPENCTEM-EGRESS
+INP=OPENCTEM-EGRESS-IN
+# Source networks: outbound-only networks of the stack.
+SOURCES=({{ ([openctem_net_egress_api ~ '.0/24'] + ([cloudflared_net_egress ~ '.0/24'] if openctem_ingress == 'cloudflared' else []) + ([openctem_net_tunnel ~ '.0/24'] if openctem_ingress == 'loopback' else [])) | join(' ') }})
+# Operator-approved destinations: cidr|proto|port (port may be empty = any).
+ALLOW=({% for a in openctem_egress_allow %}'{{ a.cidr }}|{{ a.proto | default('tcp') }}|{{ a.port | default('') }}' {% endfor %})
+DNS_FROM_HOST={{ 'yes' if openctem_egress_allow_host_dns | bool else 'no' }}
+BLOCK=(0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16)
+{% raw %}
+die() { echo "openctem-egress: $*" >&2; exit 1; }
+ipt() { iptables -w 10 "$@"; }
+v4='(25[0-5]|2[0-4][0-9]|1?[0-9]{1,2})'
+cidr_re="^($v4\\.){3}$v4/(2[4-9]|3[0-2])$"
+
+host_resolvers() {
+	[ "$DNS_FROM_HOST" = yes ] || return 0
+	local f
+	for f in /etc/resolv.conf /run/systemd/resolve/resolv.conf; do
+		[ -r "$f" ] && sed -n 's/^nameserver[[:space:]]\+\([0-9.]\+\)[[:space:]]*$/\1/p' "$f"
+	done | grep -v '^127\.' | sort -u || true
+}
+
+# allow_rules <chain>: the exceptions for every source network.
+allow_rules() {
+	local chain="$1" src a cidr proto port r
+	for src in "${SOURCES[@]}"; do
+		echo "-A $chain -s $src -m conntrack --ctstate ESTABLISHED,RELATED -j RETURN"
+		for a in "${ALLOW[@]}"; do
+			IFS='|' read -r cidr proto port <<< "$a"
+			[[ "$cidr" =~ $cidr_re ]] || die "allow entry '$cidr' is not an IPv4 CIDR of /24 or narrower"
+			case "$cidr" in 169.254.*) die "allow entry '$cidr' is link-local/metadata: refused" ;; esac
+			case "$proto" in tcp | udp) ;; *) die "allow entry proto '$proto' is not tcp or udp" ;; esac
+			[ -z "$port" ] || { [[ "$port" =~ ^[0-9]+$ ]] && [ "$port" -ge 1 ] && [ "$port" -le 65535 ]; } || die "allow entry port '$port' is invalid"
+			echo "-A $chain -s $src -d $cidr -p $proto${port:+ --dport $port} -j RETURN"
+		done
+		for r in $(host_resolvers); do
+			echo "-A $chain -s $src -d $r/32 -p udp --dport 53 -j RETURN"
+			echo "-A $chain -s $src -d $r/32 -p tcp --dport 53 -j RETURN"
+		done
+	done
+}
+
+restore_text() {
+	local src b
+	echo '*filter'
+	echo ":$FWD - [0:0]"
+	echo ":$INP - [0:0]"
+	allow_rules "$FWD"
+	for src in "${SOURCES[@]}"; do
+		for b in "${BLOCK[@]}"; do echo "-A $FWD -s $src -d $b -j DROP"; done
+	done
+	allow_rules "$INP"
+	for src in "${SOURCES[@]}"; do echo "-A $INP -s $src -j DROP"; done
+	echo COMMIT
+}
+
+# ensure_first <parent chain> <our chain>: exactly one jump, in first place.
+ensure_first() {
+	local parent="$1" chain="$2"
+	[ "$(ipt -S "$parent" | sed -n 2p)" = "-A $parent -j $chain" ] && [ "$(ipt -S "$parent" | grep -cx -- "-A $parent -j $chain")" = 1 ] && return 0
+	while ipt -D "$parent" -j "$chain" 2> /dev/null; do :; done
+	ipt -I "$parent" 1 -j "$chain"
+}
+
+apply() {
+	ipt -S DOCKER-USER > /dev/null 2>&1 || die "no DOCKER-USER chain: Docker is not running with its iptables management (docs/FIREWALL.md)"
+	restore_text | iptables-restore -w 10 --noflush
+	ensure_first DOCKER-USER "$FWD"
+	ensure_first INPUT "$INP"
+	echo "openctem-egress: applied for ${SOURCES[*]} (${#ALLOW[@]} approved destination(s))"
+}
+
+remove() {
+	local pair
+	for pair in "DOCKER-USER $FWD" "INPUT $INP"; do
+		# shellcheck disable=SC2086
+		set -- $pair
+		while ipt -D "$1" -j "$2" 2> /dev/null; do :; done
+		ipt -F "$2" 2> /dev/null || true
+		ipt -X "$2" 2> /dev/null || true
+	done
+	echo "openctem-egress: removed"
+}
+
+case "${1:-}" in
+apply) apply ;;
+remove) remove ;;
+status) ipt -S DOCKER-USER; ipt -S INPUT | head -n 3; ipt -vS "$FWD"; ipt -vS "$INP" ;;
+*) die "usage: openctem-egress apply|remove|status" ;;
+esac
+{% endraw %}

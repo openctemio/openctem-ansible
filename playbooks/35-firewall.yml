@@ -1,5 +1,6 @@
 ---
 # ufw: deny inbound except SSH from admin_cidrs; outbound open (tunnel, DNS, HTTPS). Refuses to run if this controller is outside admin_cidrs.
+# With openctem_egress_policy: restricted it also blocks the stack's containers from private networks (docs/FIREWALL.md).
 # Opt-in: -e apply_firewall=true (or set it in your inventory). Without it this play
 # does nothing. Rehearse with --check --diff first.
 - name: Host firewall (ufw)

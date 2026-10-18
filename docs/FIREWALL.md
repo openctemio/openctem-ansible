@@ -4,7 +4,8 @@
 
 - **Inbound:** deny everything except SSH (tcp/22) from `admin_cidrs`. No HTTP
   or HTTPS port is needed: the Cloudflare Tunnel is an outbound connection.
-- **Outbound:** allowed. The host needs: Cloudflare's edge on 7844/udp and
+- **Outbound (host):** allowed. The stack's containers have their own
+  [outbound policy](#outbound-policy-of-the-stacks-containers). The host needs: Cloudflare's edge on 7844/udp and
   7844/tcp (tunnel; QUIC first, HTTP/2 fallback); DNS; HTTPS to `ghcr.io`,
   `docker.io`, `download.docker.com`, the Ubuntu archive and the sigstore
   services (image signature checks at deploy). The API also calls out for its
@@ -44,6 +45,70 @@ If another workload on this host must publish a port, filter it in the
 `DOCKER-USER` chain (iptables backend; check with `docker info --format
 '{{.FirewallBackend}}'`) or upstream, never with ufw rules alone.
 
+## Outbound policy of the stack's containers
+
+Only two containers have a route to the internet: the **API** (network
+`egress_api`: threat-intelligence feeds, CI OIDC keys, webhooks, SMTP, identity
+providers, integrations) and **cloudflared** (network `egress_tunnel`:
+Cloudflare's edge). The gateway, web, console, Postgres and Redis sit on
+internal networks only and cannot start a connection out. With the optional
+`loopback` ingress the gateway's network is not internal, so it is covered too.
+
+Left open, the API can still be made to call an address on the operator's own
+network (a tenant-supplied webhook, identity-provider or template URL that
+slipped past the application's SSRF guard): the LAN, the cloud metadata address
+or the host itself. `openctem_egress_policy: restricted` closes that at the
+network layer. The application guard stays the primary control; this is the
+second one.
+
+| Setting | Meaning |
+|---|---|
+| `openctem_egress_policy: open` | no restriction beyond the networks above |
+| `openctem_egress_policy: restricted` | the outbound networks cannot reach `0.0.0.0/8`, `10.0.0.0/8`, `100.64.0.0/10`, `127.0.0.0/8`, `169.254.0.0/16` (link-local, cloud metadata), `172.16.0.0/12`, `192.168.0.0/16`, nor any address of this host |
+| default | `restricted` when `openctem_signup_mode: open` (tenants are strangers), `open` otherwise |
+| `openctem_egress_allow` | operator-approved destinations, see below |
+| `openctem_egress_allow_host_dns` | default `true`: the host's DNS resolvers (read when the rules are applied) stay reachable on port 53 |
+
+What stays reachable: the whole internet, the stack itself (it runs on other
+networks, and the rules match only packets whose source is an outbound network)
+and, from the API, its replies. The networks are IPv4 only, so there is no
+IPv6 path to filter.
+
+**Approved internal destinations** (an internal SMTP relay, Jira, an identity
+provider):
+
+```yaml
+openctem_egress_allow:
+  - { cidr: 192.0.2.25/32, port: 587 }          # tcp by default
+  - { cidr: 198.51.100.0/28, port: 636, proto: tcp }
+```
+
+`cidr` is IPv4, `/24` or narrower, never in `169.254.0.0/16`; `port` and
+`proto` narrow it further. Prefer one host and one port. Each entry is a hole
+a tenant-controlled URL could aim at: add only what a configured integration
+needs.
+
+**How it is enforced.** `playbooks/35-firewall.yml` (with `apply_firewall`)
+installs `/usr/local/sbin/openctem-egress` and a systemd unit. The script
+writes two chains of its own, `OPENCTEM-EGRESS` (forwarded traffic: LAN,
+internet, metadata) and `OPENCTEM-EGRESS-IN` (traffic to the host itself),
+loaded in one atomic `iptables-restore`, and jumps to them first from
+`DOCKER-USER` and `INPUT`. It is idempotent. The unit re-applies it at boot and
+whenever Docker restarts, and `openctem-monitor` alerts when a jump is missing.
+Needs Docker's iptables backend (`docker info --format '{{.FirewallBackend}}'`);
+the role refuses the nftables backend rather than pretend. Rerun the play after
+changing a resolver or the allow-list.
+
+```bash
+sudo openctem-egress status     # rules and packet counters
+sudo openctem-egress remove     # drop the rules (the next play run re-applies them)
+```
+
+Switching back to `open` and rerunning the play removes the rules and the unit.
+`tests/smoke.sh` proves the policy in an isolated Docker-in-Docker: a container
+on the API's networks reaches the internet and Postgres, an allow-listed
+destination, and not another private address, the host or the metadata address.
+
 ## Internal networks
 
 | Network | Members | Internet |
@@ -72,6 +137,8 @@ is no boundary against root on the host: host security comes first.
 | cloudflared → `gateway:80` | works (tunnel network) |
 | cloudflared → `api:8080`, `web:3000`, `postgres`, `redis` | fails (not on those networks) |
 | host → Cloudflare 7844 udp/tcp | works (tunnel Healthy) |
+| API container → private LAN address, `169.254.169.254`, the host (policy `restricted`) | dropped (an allow-listed destination works) |
+| API container → internet, postgres, redis | works |
 | Browser → `https://<app host>/` | Access login, then OpenCTEM |
 | Browser → `https://<app host>/api/v1/me` without Access | Access challenge |
 | Sensor → `https://<app host>/api/v2/sensor/*` | reaches the API, no Access; 401 without a key |
