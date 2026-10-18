@@ -4,3 +4,7 @@
 # controller's own address is outside them (lockout guard).
 firewall_admin_cidrs: "{{ admin_cidrs | default([]) }}"
 firewall_ssh_port: 22
+
+# Outbound policy of the stack's containers: openctem_egress_policy,
+# openctem_egress_allow, openctem_egress_allow_host_dns (roles/openctem_common),
+# applied as DOCKER-USER/INPUT rules by openctem-egress (docs/FIREWALL.md).

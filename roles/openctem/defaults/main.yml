@@ -19,7 +19,7 @@ openctem_verify_signatures: true
 # egress_api         api -> internet (feeds, OIDC keys for CI, SMTP, integrations)
 openctem_net_origin: 172.30.80
 openctem_net_data: 172.30.82
-openctem_net_egress_api: 172.30.84
+# (openctem_net_egress_api: roles/openctem_common, the firewall role needs it too)
 
 # --- Job signer (signed sensor jobs, docs/architecture/job-signing.md) ------------
 # Off by default, like the upstream stack. When on, the API hands a sensor

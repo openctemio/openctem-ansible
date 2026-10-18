@@ -19,7 +19,10 @@
 # copy them into DinD, then inside DinD: secrets with the role's script in an
 # Ubuntu 26.04 container (uutils), stack up (no cloudflared: no real token),
 # openctem-verify, the trusted-proxy check, backups in local and age mode,
-# restore drill, full restore, verify again.
+# restore drill, full restore, verify again; and the egress policy: a container
+# on the API's outbound network reaches the internet and Postgres, not a
+# private address of the outer network, nor the DinD host, nor the metadata
+# address, and an allow-listed destination stays reachable.
 #
 # Env: ANSIBLE_PLAYBOOK (default ansible-playbook), DIND_IMAGE, KEEP=1 keeps
 # the DinD container for inspection (remove it yourself by its printed name).
@@ -30,6 +33,8 @@ dind_image="${DIND_IMAGE:-docker:28-dind}"
 id="$(date +%s)-$$"
 dind="octsmoke-dind-$id"
 net="octsmoke-net-$id"
+lan="octsmoke-lan-$id"
+lan_image="${SMOKE_LAN_IMAGE:-busybox:1.37}"
 render="$(mktemp -d "${TMPDIR:-/tmp}/octsmoke-render.XXXXXX")"
 version="$(sed -n 's/^openctem_version: *//p' "$kit/tests/vars.yml")"
 
@@ -45,23 +50,28 @@ cleanup() {
 		echo "KEEP=1: left $dind and $net running"
 		return
 	fi
-	docker rm -f "$dind" > /dev/null 2>&1 || true
+	docker rm -f "$dind" "$lan" > /dev/null 2>&1 || true
 	docker network rm "$net" > /dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
+echo "== a stand-in for a private (LAN) server on the outer network: :8080 (blocked by the policy) and :8081 (allow-listed)"
+docker network create --internal=false "$net" > /dev/null
+docker run -d --rm --name "$lan" --network "$net" "$lan_image" sh -c 'httpd -p 8081; exec httpd -f -p 8080' > /dev/null
+lan_ip="$(docker inspect -f "{{(index .NetworkSettings.Networks \"$net\").IPAddress}}" "$lan")"
+echo "  $lan at $lan_ip"
+
 echo "== render $version (no Docker)"
-"$ap" "$kit/tests/render.yml" -e "render_dir=$render" -e openctem_root=/work -e openctem_project=octsmoke \
+"$ap" "$kit/tests/render.yml" -e "{\"openctem_egress_allow\": [{\"cidr\": \"$lan_ip/32\", \"port\": 8081}]}" -e "render_dir=$render" -e openctem_root=/work -e openctem_project=octsmoke \
 	-e openctem_state_dir=/work/state -e backup_dir=/work/backups -e backup_state_dir=/work/bstate \
 	-e openctem_app_host=ctem.example.com < /dev/null > "$render/render.log" 2>&1 || { tail -n 30 "$render/render.log"; exit 1; }
 
 echo "== start isolated DinD ($dind_image)"
-docker network create --internal=false "$net" > /dev/null
 docker run -d --rm --privileged --name "$dind" --hostname "$dind" --network "$net" \
 	-e DOCKER_TLS_CERTDIR= -v "$kit:/kit:ro" "$dind_image" > /dev/null
 for _ in $(seq 1 60); do docker exec "$dind" docker info > /dev/null 2>&1 && break; sleep 1; done
 docker exec "$dind" sh -c 'apk add --no-cache bash coreutils > /dev/null'
 docker exec "$dind" mkdir -p /work
 docker cp "$render/." "$dind:/work/render/"
-docker exec "$dind" bash /kit/tests/smoke-inner.sh "$dind" "$version"
+docker exec "$dind" bash /kit/tests/smoke-inner.sh "$dind" "$version" "$lan_ip"
 echo "== smoke test passed"
