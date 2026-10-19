@@ -14,12 +14,19 @@
 # the target and checks it; it also prints the time the recovery stopped at.
 # Run it monthly and record how long it took (that is the restore time).
 #
+# The backup's signature is verified against the public key you kept OFF this
+# host: --allowed-signers=FILE (default /etc/openctem/backup-allowed-signers,
+# present when backup_signing_allowed_signers is set). Unsigned or badly signed
+# data is refused unless --allow-unsigned.
+#
 # The identity (age private key) is the owner's: copy it here only for the
 # drill (e.g. scp to /root/drill.key, chmod 600) and delete it afterwards.
 set -euo pipefail
 umask 077
 # shellcheck source=/dev/null
 . /usr/local/lib/openctem/restore-common.sh
+parse_flags "$@"
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 w="$(mktemp -d /var/tmp/openctem-drill.XXXXXX)"
 name="openctem-restore-drill-$$"
 trap 'docker rm -f "$name" > /dev/null 2>&1 || true; docker volume rm "${vol:-none}" > /dev/null 2>&1 || true; rm -rf -- "$w"' EXIT

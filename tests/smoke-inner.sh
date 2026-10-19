@@ -51,7 +51,7 @@ ubuntu() {
 		-v /usr/local/libexec/docker/cli-plugins:/usr/libexec/docker/cli-plugins:ro \
 		-v "$work:$work" -v /usr/local/sbin:/usr/local/sbin:ro -v /usr/local/lib/openctem:/usr/local/lib/openctem:ro \
 		-v /etc/openctem:/etc/openctem "$ubuntu_image" bash -c "set -e
-		apt-get update -qq > /dev/null && apt-get install -y -qq openssl age gzip > /dev/null 2>&1
+		apt-get update -qq > /dev/null && apt-get install -y -qq openssl age gzip openssh-client > /dev/null 2>&1
 		$1"
 }
 
@@ -130,6 +130,10 @@ docker rm -f egress-probe egress-hostweb > /dev/null
 
 say "backups, drill and restore (Ubuntu 26.04)"
 ubuntu "
+	echo '-- signing key (the role makes it; the allowed signers file stands for the copy kept off the host)'
+	mkdir -p -m 0700 /etc/openctem/backup-signing
+	ssh-keygen -q -t ed25519 -N '' -C openctem-backup -f /etc/openctem/backup-signing/id_ed25519
+	echo \"openctem-backup \$(cut -d' ' -f1,2 /etc/openctem/backup-signing/id_ed25519.pub)\" > /etc/openctem/backup-allowed-signers
 	echo '-- local mode'
 	openctem-backup
 	echo '-- local mode refuses an off-host copy'
@@ -142,11 +146,18 @@ ubuntu "
 	age-keygen -y /root/drill-identity.txt > /etc/openctem/backup-recipients.txt
 	openctem-backup
 	last=\"\$(cat $work/bstate/last_path)\"
-	if ls \"\$last\" | grep -v -e '\.age\$' -e '^MANIFEST.sha256\$' | grep -q .; then echo 'plaintext file in an age backup'; exit 1; fi
+	if ls \"\$last\" | grep -v -e '\.age\$' -e '^MANIFEST.sha256\$' -e '^MANIFEST.sha256.sig\$' | grep -q .; then echo 'plaintext file in an age backup'; exit 1; fi
 	if openctem-restore-drill \"\$last\" 2> /dev/null; then echo 'drill ran without identity'; exit 1; fi
 	openctem-restore-drill \"\$last\" /root/drill-identity.txt
+	echo '-- a planted dump with a recomputed manifest is refused (the manifest signature no longer verifies)'
+	cp -r \"\$last\" /root/planted
+	printf x >> /root/planted/openctem.dump.age
+	( cd /root/planted && sha256sum -- *.age > MANIFEST.sha256 )
+	if openctem-restore-drill /root/planted /root/drill-identity.txt 2> /dev/null; then echo 'drill accepted a planted backup'; exit 1; fi
+	if openctem-restore \"\$last\" /root/drill-identity.txt --yes --allowed-signers=/dev/null 2> /dev/null; then echo 'restore ran without a way to verify'; exit 1; fi
 	echo '-- full restore of the age backup over the running stack'
 	openctem-restore \"\$last\" /root/drill-identity.txt --yes
+	ls $work/backups/pre-restore-*.dump.age > /dev/null
 "
 say "verify after restore"
 openctem-verify
@@ -205,4 +216,11 @@ got="$(sql "SELECT string_agg(n::text, ',' ORDER BY n) FROM pitr_marker")"
 echo "  OK: the point-in-time restore brought back the state between the two transactions"
 say "verify after the point-in-time restore"
 openctem-verify
+say "a planted WAL segment in the bucket is refused"
+ubuntu "
+	last_wal=\"\$(find $work/s3data/smoke-bucket -name '*.gz.age' -path '*wal*' | sort | tail -n 1)\"
+	[ -n \"\$last_wal\" ] || { echo 'no WAL object found'; exit 1; }
+	printf x >> \"\$last_wal\"
+	if openctem-restore-drill --pitr latest $work/pitr-identity.txt 2> /dev/null; then echo 'drill accepted a tampered WAL segment'; exit 1; fi
+"
 docker rm -f smoke-s3 > /dev/null

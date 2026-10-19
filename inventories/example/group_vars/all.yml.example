@@ -34,6 +34,14 @@ backup_age_recipient: ''
 #   rclone copy --config /root/.config/rclone/rclone.conf "$1" remote:openctem/$(basename "$1")
 backup_offsite_command: ''
 backup_keep_days: 14
+# Backups are signed on the host. Keep the PUBLIC key OFF the host (the backup
+# play prints the line) and give it to restores with --allowed-signers=FILE;
+# setting it here also puts a copy on the host for the drill.
+backup_signing_allowed_signers: ''
+# Pruning the bucket from the host needs a key that can delete (root on the host
+# could then wipe every off-host copy). Default false: use a write-only key and a
+# lifecycle rule on the bucket (docs/BACKUP-PITR.md).
+backup_wal_prune: false
 
 # --- Monitoring --------------------------------------------------------------------
 # A webhook URL is a credential: put it in group_vars/vault.yml (ansible-vault

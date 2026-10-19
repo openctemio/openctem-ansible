@@ -477,6 +477,22 @@ new backup directory as `$1`, e.g. `rclone copy --config
 the remote's credentials in a root-only file on the host. Only encrypted
 backups are copied.
 
+**Off-host backups are encrypted, signed and cannot be deleted from the host.**
+The role refuses an off-host copy without `backup_age_recipient`. Every backup
+manifest (`MANIFEST.sha256`), WAL segment and base-backup `meta.json` is signed
+with an ed25519 key generated once on the host (`/etc/openctem/backup-signing`,
+root 0400); `age` alone proves nothing about the author, because the recipient
+key is public. The backup play prints the public key as an `allowed_signers`
+line: store it **off the host** and pass it to restores,
+`--allowed-signers=FILE` (or set `backup_signing_allowed_signers`, which also
+puts a copy on the host for the drill). Restore, drill and point-in-time
+recovery refuse an unsigned or badly signed backup unless you pass
+`--allow-unsigned` (logged to the journal). Backups made before this change are
+unsigned: restore them with `--allow-unsigned` once. The bucket credential on the host should be
+write-only, with versioning and object lock on the bucket and pruning by a
+lifecycle rule: see [docs/BACKUP-PITR.md](docs/BACKUP-PITR.md); the host
+deletes from the bucket only with `backup_wal_prune: true`.
+
 **Restore drill** (monthly at least): restores into a throwaway PostgreSQL
 with no network and compares row counts with the running database, without
 touching the stack.
@@ -495,8 +511,15 @@ API while it runs, replaces the database and the uploaded files, re-applies
 the database roles, starts what was running, verifies):
 
 ```bash
-sudo openctem-restore /var/backups/openctem/<UTC time> [/root/drill.key] --yes
+sudo openctem-restore /var/backups/openctem/<UTC time> [/root/drill.key] --yes --allowed-signers=/path/to/allowed_signers
 ```
+
+It refuses a backup of another release than the one running
+(`--allow-version-mismatch`), saves the current database to
+`/var/backups/openctem/pre-restore-<time>.dump[.age]` before dropping it
+(`--skip-pre-restore-dump` only if it cannot be dumped; delete the file once
+you are satisfied, it is never pruned), and logs who ran it
+(`journalctl -t openctem-restore`).
 
 **Continuous archiving and point-in-time recovery** (off by default; needs an
 S3-compatible bucket and its access key, which only you can provide): the

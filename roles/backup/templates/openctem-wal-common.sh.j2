@@ -4,10 +4,14 @@
 # openctem-base-backup, openctem-restore --pitr, openctem-restore-drill --pitr.
 #
 # Bucket layout (everything but meta.json is encrypted to the age recipient on
-# this host; the matching identity stays off the host):
+# this host; the matching identity stays off the host). Each object has a
+# detached signature (<name>.sig, ssh-keygen -Y, namespace openctem-backup) made
+# on this host; restores verify it against a public key kept off the host, so a
+# bucket writer cannot plant a segment or base backup:
 #   <prefix>/wal/<segment>.gz.age               one WAL segment (gzip, then age)
 #   <prefix>/base/<UTC time>/base.tar.gz.age    base backup (pg_basebackup tar)
 #   <prefix>/base/<UTC time>/meta.json          written last: marks the base complete
+#                                               (carries the base backup's checksum)
 SPOOL='{{ openctem_wal_spool_dir }}'
 BSTATE='{{ backup_state_dir }}'
 WORK='{{ backup_state_dir }}/work'
@@ -16,6 +20,10 @@ RCLONE_IMAGE='{{ openctem_rclone_image }}'
 REMOTE='openctem-backup:{{ backup_wal_bucket }}/{{ backup_wal_prefix }}'
 RECIPIENTS=/etc/openctem/backup-recipients.txt
 RETENTION_DAYS='{{ backup_wal_retention_days | int }}'
+# Pruning from this host needs a bucket key that can delete: off unless asked for
+# (backup_wal_prune); otherwise the bucket's lifecycle rule prunes.
+PRUNE='{{ 'yes' if backup_wal_prune | bool else 'no' }}'
+SIGN_KEY='{{ backup_signing_dir }}/id_ed25519'
 FETCH_SLACK_HOURS="${OPENCTEM_PITR_SLACK_HOURS:-{{ backup_pitr_fetch_slack_hours | int }}}"
 PG_IMAGE='{{ openctem_postgres_image }}'
 ROOT='{{ openctem_root }}'
@@ -44,6 +52,7 @@ rc() {
 wal_setup_check() {
 	[ -s "$RECIPIENTS" ] || wdie "$RECIPIENTS is empty: continuous archiving needs backup_age_recipient"
 	[ -r "$RCLONE_CONF" ] || wdie "no remote definition at $RCLONE_CONF"
+	[ -r "$SIGN_KEY" ] || wdie "no signing key $SIGN_KEY: run the backup play (playbooks/55-backup.yml)"
 	command -v age > /dev/null || wdie "age is not installed"
 	mkdir -p "$WORK" "$BSTATE"
 	chmod 0700 "$WORK" "$BSTATE"
@@ -77,14 +86,29 @@ pitr_stage() {
 	local bases=()
 	mapfile -t bases < <(rc lsf -R --files-only --include meta.json "$REMOTE/base/" | sed 's#/meta.json$##' | sort)
 	[ "${#bases[@]}" -gt 0 ] || wdie "no complete base backup in the bucket"
+	mkdir -p "$w/sig"
 	for cand in "${bases[@]}"; do
-		meta="$(rc cat "$REMOTE/base/$cand/meta.json")"
+		# Fetched once: the bytes verified are the bytes used.
+		rc cat "$REMOTE/base/$cand/meta.json" > "$w/sig/meta.$cand" < /dev/null
+		meta="$(cat "$w/sig/meta.$cand")"
+		# Only a base backup with a good signature is a candidate: a planted
+		# newer one must not hide the real one (with --allow-unsigned it still counts).
+		rc cat "$REMOTE/base/$cand/meta.json.sig" > "$w/sig/meta.$cand.sig" 2> /dev/null < /dev/null || : > "$w/sig/meta.$cand.sig"
+		if ! sig_check "$w/sig/meta.$cand" "$w/sig/meta.$cand.sig"; then
+			if [ "$ALLOW_UNSIGNED" = yes ]; then
+				wlog "WARNING: base backup $cand: $SIG_REASON; counted because of --allow-unsigned"
+				logger -t openctem-restore -p user.warning -- "base backup $cand accepted WITHOUT a valid signature (--allow-unsigned): $SIG_REASON" || true
+			else
+				wlog "skipping base backup $cand: $SIG_REASON"
+				continue
+			fi
+		fi
 		finished="$(sed -n 's/.*"finished":"\([0-9TZ]*\)".*/\1/p' <<< "$meta")"
 		[ -n "$finished" ] || continue
 		if [[ "$finished" < "$PITR_COMPACT" || "$finished" == "$PITR_COMPACT" ]]; then b="$cand"; fi
 	done
 	[ -n "$b" ] || wdie "no base backup finished before $target (the oldest is ${bases[0]})"
-	meta="$(rc cat "$REMOTE/base/$b/meta.json")"
+	meta="$(cat "$w/sig/meta.$b")"
 	start_wal="$(sed -n 's/.*"start_wal":"\([0-9A-F]*\)".*/\1/p' <<< "$meta")"
 	sha="$(sed -n 's/.*"sha256":"\([0-9a-f]*\)".*/\1/p' <<< "$meta")"
 	[ "${#start_wal}" = 24 ] && [ "${#sha}" = 64 ] || wdie "base backup $b: unreadable meta.json"
@@ -120,11 +144,14 @@ pitr_stage() {
 		[[ "$mtime" > "$until" ]] && continue
 		# rc runs docker -i: without this it would swallow the rest of the listing.
 		rc copyto "$REMOTE/wal/$name" "/work/pitr-wal.gz.age" < /dev/null
+		rm -f "$WORK/pitr-wal.sig"
+		rc copyto "$REMOTE/wal/$name.sig" "/work/pitr-wal.sig" < /dev/null 2> /dev/null || : > "$WORK/pitr-wal.sig"
+		sig_require "$WORK/pitr-wal.gz.age" "$WORK/pitr-wal.sig" "WAL file $name"
 		age -d -i "$id" "$WORK/pitr-wal.gz.age" | gzip -dc > "$w/wal/${name%.gz.age}"
 		[ -s "$w/wal/${name%.gz.age}" ] || wdie "WAL file $name decrypted to nothing"
 		n=$((n + 1))
 	done < <(rc lsf --format pt --separator '|' "$REMOTE/wal/" | sort)
-	rm -f "$WORK/pitr-wal.gz.age"
+	rm -f "$WORK/pitr-wal.gz.age" "$WORK/pitr-wal.sig"
 	chmod -R a+rX "$w/wal"
 	[ "$n" -gt 0 ] || wdie "no WAL in the bucket after $start_wal"
 	wlog "$n WAL file(s) fetched"

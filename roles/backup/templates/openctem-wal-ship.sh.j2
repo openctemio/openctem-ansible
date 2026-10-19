@@ -1,7 +1,8 @@
 #!/bin/bash
 # {{ ansible_managed }}
 # Uploads the finished WAL segments of the database to the bucket: gzip, then
-# encrypted to the age recipient of this host, then rclone. A segment leaves
+# encrypted to the age recipient of this host, signed with this host's backup
+# key (<name>.sig next to it), then rclone. A segment leaves
 # the spool only after the bucket lists it. Run every {{ backup_wal_ship_interval }} by
 # openctem-wal-ship.timer; safe to run by hand.
 # shellcheck disable=SC2154 # settings come from wal-common.sh
@@ -20,8 +21,14 @@ names=()
 mapfile -t names < <(find "$SPOOL" -maxdepth 1 -type f -regextype posix-extended \
 	-regex '.*/([0-9A-F]{24}|[0-9A-F]{8}\.history|[0-9A-F]{24}\.[0-9A-F]{8}\.backup)' -printf '%f\n' | sort)
 for f in "${names[@]}"; do
-	gzip -c "$SPOOL/$f" | age -R "$RECIPIENTS" | rc rcat "$REMOTE/wal/$f.gz.age"
-	[ -n "$(rc lsf "$REMOTE/wal/$f.gz.age")" ] || wdie "$f: the bucket does not list the upload"
+	tmp="$WORK/ship-$f.gz.age"
+	gzip -c "$SPOOL/$f" | age -R "$RECIPIENTS" -o "$tmp"
+	ssh-keygen -q -Y sign -n openctem-backup -f "$SIGN_KEY" "$tmp"
+	[ -s "$tmp.sig" ] || wdie "$f: signing failed"
+	rc copyto "/work/ship-$f.gz.age" "$REMOTE/wal/$f.gz.age"
+	rc copyto "/work/ship-$f.gz.age.sig" "$REMOTE/wal/$f.gz.age.sig"
+	rm -f -- "$tmp" "$tmp.sig"
+	[ -n "$(rc lsf "$REMOTE/wal/$f.gz.age")" ] && [ -n "$(rc lsf "$REMOTE/wal/$f.gz.age.sig")" ] || wdie "$f: the bucket does not list the upload"
 	rm -f -- "$SPOOL/$f"
 	shipped=$((shipped + 1))
 done

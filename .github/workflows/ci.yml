@@ -62,6 +62,8 @@ jobs:
           grep -q 'SIGNUP_MODE: disabled' "$r/compose.yml"
           grep -q '^FINGERPRINT_KEY=' "$r/scripts/openctem-secrets"
           tests/secrets-fingerprint.sh "$r/scripts/openctem-secrets"
+      - name: Signed backups, restore guards, opt-in pruning (stub docker)
+        run: tests/backup-signing.sh "$RUNNER_TEMP/render"
       - name: First-admin one-shot service and monitor webhook handling
         run: tests/bootstrap-admin.sh "$RUNNER_TEMP/render"
       - name: shellcheck (rendered scripts and test scripts)

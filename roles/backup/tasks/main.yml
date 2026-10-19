@@ -15,8 +15,15 @@
 - name: Off-host copy needs encryption
   ansible.builtin.assert:
     that: backup_mode == 'age'
-    fail_msg: 'backup_offsite_command is set but backups are not encrypted: set backup_age_recipient first.'
+    fail_msg: >-
+      backup_offsite_command is set but backups are not encrypted: set backup_age_recipient first
+      (dumps and the secrets archive never leave the host in plaintext).
   when: backup_offsite_command | length > 0
+
+- name: Signing tool
+  ansible.builtin.apt:
+    name: [openssh-client]
+    state: present
 
 - name: Install age
   ansible.builtin.apt:
@@ -53,6 +60,68 @@
     path: /etc/openctem/backup-recipients.txt
     state: absent
   when: backup_mode == 'local'
+
+# Backups are signed so that a bucket writer cannot plant a dump (age alone
+# proves nothing about the author: the recipient key is public).
+- name: Signing key directory
+  ansible.builtin.file:
+    path: "{{ backup_signing_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+
+- name: Signing key (generated once, on this host)
+  ansible.builtin.command:
+    argv: [ssh-keygen, -q, -t, ed25519, -N, '', -C, openctem-backup, -f, "{{ backup_signing_dir }}/id_ed25519"]
+    creates: "{{ backup_signing_dir }}/id_ed25519"
+  register: backup_signing_key
+  when: not ansible_check_mode
+
+- name: Signing key permissions
+  ansible.builtin.file:
+    path: "{{ backup_signing_dir }}/{{ item.name }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: id_ed25519, mode: '0400' }
+    - { name: id_ed25519.pub, mode: '0644' }
+  when: not ansible_check_mode
+
+- name: Read the signing public key
+  ansible.builtin.slurp:
+    src: "{{ backup_signing_dir }}/id_ed25519.pub"
+  register: backup_signing_pub
+  when: not ansible_check_mode
+
+- name: Allowed signers are in the allowed_signers format
+  ansible.builtin.assert:
+    that:
+      - >-
+        backup_signing_allowed_signers.splitlines()
+        | select('match', '^\s*[^#\s]')
+        | reject('match', '^openctem-backup( namespaces="[^"]*")? ssh-ed25519 [A-Za-z0-9+/=]+( .*)?$')
+        | list | length == 0
+    fail_msg: >-
+      backup_signing_allowed_signers lines must read: openctem-backup ssh-ed25519 <public key>
+      (the line the backup play prints, or `ssh-keygen -y` of the signing key).
+  when: backup_signing_allowed_signers | length > 0
+
+- name: Allowed signers copy (optional, for the drill on this host)
+  ansible.builtin.copy:
+    dest: /etc/openctem/backup-allowed-signers
+    content: "{{ backup_signing_allowed_signers | trim }}\n"
+    owner: root
+    group: root
+    mode: '0644'
+  when: backup_signing_allowed_signers | length > 0
+
+- name: No allowed signers copy when none is configured
+  ansible.builtin.file:
+    path: /etc/openctem/backup-allowed-signers
+    state: absent
+  when: backup_signing_allowed_signers | length == 0
 
 - name: Off-host copy hook
   ansible.builtin.copy:
@@ -138,6 +207,14 @@
 
 - name: Continuous archiving (point-in-time recovery)
   ansible.builtin.include_tasks: "{{ 'wal.yml' if openctem_wal_archive | bool else 'wal_off.yml' }}"
+
+- name: Signing public key (keep it OFF this host)
+  ansible.builtin.debug:
+    msg: >-
+      Backups are signed. Store this line OFF this host (your password manager, the repository of your
+      inventory) as the allowed_signers file, and pass it to restores (--allowed-signers=FILE) or set
+      backup_signing_allowed_signers: openctem-backup {{ (backup_signing_pub.content | b64decode).split()[:2] | join(' ') }}
+  when: not ansible_check_mode
 
 - name: Run a backup now (-e backup_run_now=true)
   ansible.builtin.systemd_service:

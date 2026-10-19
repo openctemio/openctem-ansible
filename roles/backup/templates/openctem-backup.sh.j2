@@ -9,6 +9,10 @@
 # Mode age   (/etc/openctem/backup-recipients.txt non-empty): every file is
 #            encrypted to the owner's age public key on this server; the
 #            plaintext staging copy is deleted. Off-host copy allowed.
+# Both modes end with MANIFEST.sha256 (over every file of the backup) signed
+#            with this host's key (MANIFEST.sha256.sig): restores verify it
+#            against a public key kept off the host, so a bucket writer
+#            cannot plant a dump.
 # Mode local (no recipient): files stay plaintext in a root-only 0700
 #            directory ON THIS HOST. Off-host copy is refused.
 set -euo pipefail
@@ -22,6 +26,7 @@ BSTATE='{{ backup_state_dir }}'
 PG_IMAGE='{{ openctem_postgres_image }}'
 KEEP_DAYS='{{ backup_keep_days | int }}'
 RECIPIENTS=/etc/openctem/backup-recipients.txt
+SIGN_KEY='{{ backup_signing_dir }}/id_ed25519'
 OFFSITE=/etc/openctem/backup-offsite.sh
 
 log() { echo "openctem-backup: $*"; }
@@ -40,6 +45,7 @@ dc() { docker compose -p "$PROJECT" --project-directory "$ROOT" "${compose_files
 mode=local
 if [ -s "$RECIPIENTS" ]; then mode=age; command -v age >/dev/null || die "age is not installed"; fi
 
+[ -r "$SIGN_KEY" ] || die "no signing key $SIGN_KEY: run the backup play (playbooks/55-backup.yml)"
 mkdir -p "$DEST" "$BSTATE"
 chmod 0700 "$DEST" "$BSTATE"
 exec 9>"$BSTATE/lock"
@@ -93,10 +99,13 @@ if [ "$mode" = age ]; then
 	for f in "$work"/*; do
 		age -R "$RECIPIENTS" -o "$out/$(basename "$f").age" "$f"
 	done
-	( cd "$out" && sha256sum -- *.age > MANIFEST.sha256 )
 else
 	mv "$work"/* "$out"/
 fi
+( cd "$out" && sha256sum -- * ) > "$work/MANIFEST.sha256"
+mv "$work/MANIFEST.sha256" "$out/MANIFEST.sha256"
+ssh-keygen -q -Y sign -n openctem-backup -f "$SIGN_KEY" "$out/MANIFEST.sha256"
+[ -s "$out/MANIFEST.sha256.sig" ] || die "signing the manifest failed"
 chmod 0600 "$out"/*
 log "OK $out ($(du -sh "$out" | cut -f1))"
 

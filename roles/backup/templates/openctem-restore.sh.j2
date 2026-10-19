@@ -7,6 +7,17 @@
 #   sudo openctem-restore <backup dir> [identity] --yes [--with-secrets]
 #   sudo openctem-restore --pitr "<UTC time>|latest" <identity> --yes
 #
+# Safety:
+# - The backup's signature is verified first against the public key you kept
+#   OFF this host (--allowed-signers=FILE; default /etc/openctem/backup-allowed-signers).
+#   An unsigned or badly signed backup is refused unless --allow-unsigned.
+# - A backup of another release (VERSION) than the one running is refused unless
+#   --allow-version-mismatch.
+# - The current database is dumped to {{ backup_dir }}/pre-restore-<time>.dump[.age]
+#   before it is dropped (--skip-pre-restore-dump only when the database is too
+#   damaged to dump). It is never pruned automatically: delete it when satisfied.
+# - Who ran it and what was passed goes to the journal (logger tag openctem-restore).
+#
 # --pitr recovers the database to a point in time from the continuous archive
 # in the bucket (base backup + WAL, docs/BACKUP-PITR.md): a throwaway Postgres
 # without network replays the WAL to the target, its dump replaces the
@@ -23,6 +34,8 @@ set -euo pipefail
 umask 077
 # shellcheck source=/dev/null
 . /usr/local/lib/openctem/restore-common.sh
+parse_flags "$@"
+set -- "${ARGS[@]+"${ARGS[@]}"}"
 pitr=""
 if [ "${1:-}" = --pitr ]; then
 	pitr="${2:-}"; [ -n "$pitr" ] || die "usage: openctem-restore --pitr \"<UTC time>|latest\" <identity> --yes"
@@ -31,24 +44,30 @@ if [ "${1:-}" = --pitr ]; then
 else
 	src="${1:-}"; shift || true
 fi
-id=""; yes=no; with_secrets=no
+id=""; yes=no; with_secrets=no; allow_mismatch=no; skip_predump=no
 for a in "$@"; do
 	case "$a" in
 	--yes) yes=yes ;;
 	--with-secrets) with_secrets=yes ;;
+	--allow-version-mismatch) allow_mismatch=yes ;;
+	--skip-pre-restore-dump) skip_predump=yes ;;
 	*) id="$a" ;;
 	esac
 done
 [ -n "$src" ] || die "usage: openctem-restore <backup dir> [identity] --yes [--with-secrets] | --pitr <time> <identity> --yes"
 [ -z "$pitr" ] || [ "$with_secrets" = no ] || die "--with-secrets is not available with --pitr (secrets come from a nightly backup)"
 [ "$yes" = yes ] || die "this replaces the database and files of the running stack; add --yes"
+# The audit trail: sudo's user, not just root.
+actor="${SUDO_USER:-$(id -un)} (uid ${SUDO_UID:-$(id -u)})"
+logger -t openctem-restore -p user.notice -- "restore started by $actor from $src; with_secrets=$with_secrets allow_unsigned=$ALLOW_UNSIGNED allow_version_mismatch=$allow_mismatch skip_pre_restore_dump=$skip_predump"
+trap 'rc=$?; [ "$rc" = 0 ] || logger -t openctem-restore -p user.err -- "restore by $actor from $src FAILED (exit $rc)"' EXIT
 w="$(mktemp -d /var/tmp/openctem-restore.XXXXXX)"
-trap 'rm -rf -- "$w"' EXIT
+trap 'rc=$?; rm -rf -- "$w"; [ "$rc" = 0 ] || logger -t openctem-restore -p user.err -- "restore by $actor from $src FAILED (exit $rc)"' EXIT
 if [ -n "$pitr" ]; then
 	# shellcheck source=/dev/null
 	. /usr/local/lib/openctem/wal-common.sh
 	vol="${PROJECT}_pitr-$$"; cname="openctem-pitr-$$"
-	trap 'docker rm -f "$cname" > /dev/null 2>&1 || true; docker volume rm "$vol" > /dev/null 2>&1 || true; rm -rf -- "$w"' EXIT
+	trap 'rc=$?; docker rm -f "$cname" > /dev/null 2>&1 || true; docker volume rm "$vol" > /dev/null 2>&1 || true; rm -rf -- "$w"; [ "$rc" = 0 ] || logger -t openctem-restore -p user.err -- "restore by $actor from $src FAILED (exit $rc)"' EXIT
 	pitr_stage "$pitr" "$id" "$w" "$vol"
 	pitr_recover "$pitr" "$w" "$vol" "$cname"
 	docker exec "$cname" pg_dump -U postgres -d openctem -Fc --no-owner > "$w/openctem.dump"
@@ -60,7 +79,11 @@ else
 	stage "$src" "$id" "$w"
 	running="$(cat '{{ openctem_state_dir }}/deployed-version' 2> /dev/null || echo unknown)"
 	if [ "$(cat "$w/VERSION")" != "$running" ]; then
-		log "WARNING: backup from $(cat "$w/VERSION"), stack runs $running; restore with the backup's release, then upgrade"
+		if [ "$allow_mismatch" = yes ]; then
+			log "WARNING: backup from $(cat "$w/VERSION"), stack runs $running; continuing because of --allow-version-mismatch"
+		else
+			die "backup is from release $(cat "$w/VERSION") but the stack runs $running: deploy the backup's release first, then restore and upgrade (or add --allow-version-mismatch)"
+		fi
 	fi
 fi
 
@@ -91,6 +114,26 @@ if [ "$with_secrets" = yes ]; then
 	chown 999:999 "$SECRETS/db_superuser_password"
 fi
 
+# A failed pg_restore must not leave only an empty database behind: keep the
+# current one (encrypted when backups are) until the restore has succeeded.
+pre="$DEST/pre-restore-$(date -u +%Y%m%dT%H%M%SZ).dump"
+have_db="$(dc exec -T postgres psql -U postgres -d postgres -qtAX -c "SELECT 1 FROM pg_database WHERE datname = 'openctem'" || true)"
+if [ "$skip_predump" = yes ]; then
+	log "WARNING: --skip-pre-restore-dump: the current database is NOT saved"
+elif [ "$have_db" != 1 ]; then
+	log "no current openctem database to save"
+else
+	log "saving the current database to $pre"
+	mkdir -p "$(dirname "$pre")"
+	if [ -s /etc/openctem/backup-recipients.txt ]; then
+		pre="$pre.age"
+		dc exec -T postgres pg_dump -U postgres -d openctem -Fc --no-owner | age -R /etc/openctem/backup-recipients.txt -o "$pre"
+	else
+		dc exec -T postgres pg_dump -U postgres -d openctem -Fc --no-owner > "$pre"
+	fi
+	[ -s "$pre" ] || die "the pre-restore dump is empty; nothing was dropped (use --skip-pre-restore-dump if the database cannot be dumped)"
+	chmod 0600 "$pre"
+fi
 log "restoring the database (dropped and re-created, then restored)"
 # pg_restore --clean cannot drop the partitions' inherited constraints, so
 # the database is replaced as a whole; db-roles then gives the schema back
@@ -117,4 +160,5 @@ dc up -d db-roles > /dev/null
 # shellcheck disable=SC2086
 dc up -d --wait --wait-timeout 300 $was_running
 /usr/local/sbin/openctem-verify
+logger -t openctem-restore -p user.notice -- "restore by $actor from $src finished"
 log "restore finished from $src"
