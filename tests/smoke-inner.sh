@@ -157,7 +157,7 @@ ubuntu "
 	if openctem-restore \"\$last\" /root/drill-identity.txt --yes --allowed-signers=/dev/null 2> /dev/null; then echo 'restore ran without a way to verify'; exit 1; fi
 	echo '-- full restore of the age backup over the running stack'
 	openctem-restore \"\$last\" /root/drill-identity.txt --yes
-	ls /var/backups/openctem/pre-restore-*.dump.age > /dev/null
+	ls $work/backups/pre-restore-*.dump.age > /dev/null
 "
 say "verify after restore"
 openctem-verify
