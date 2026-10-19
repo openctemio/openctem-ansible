@@ -16,6 +16,51 @@ esac
 compose_files=(-f "$ROOT/compose.yml")
 [ -f "$ROOT/compose.cloudflared.yml" ] && compose_files+=(-f "$ROOT/compose.cloudflared.yml")
 dc() { docker compose -p "$PROJECT" --project-directory "$ROOT" "${compose_files[@]}" "$@"; }
+
+# --- Signatures --------------------------------------------------------------------
+# Every manifest, WAL segment and base-backup meta.json is signed by the backup host
+# (ssh-keygen -Y, namespace openctem-backup). The public key is the operator's, kept
+# OFF the host: --allowed-signers=FILE (an allowed_signers file with the line
+# `openctem-backup ssh-ed25519 <key>`), default /etc/openctem/backup-allowed-signers.
+# Without a good signature the restore stops; --allow-unsigned lifts that, loudly.
+ALLOWED_SIGNERS=/etc/openctem/backup-allowed-signers
+ALLOW_UNSIGNED=no
+
+# parse_flags <args...>: sets ALLOW_UNSIGNED/ALLOWED_SIGNERS and ARGS (the rest).
+parse_flags() {
+	ARGS=()
+	local a
+	for a in "$@"; do
+		case "$a" in
+		--allow-unsigned) ALLOW_UNSIGNED=yes ;;
+		--allowed-signers=*) ALLOWED_SIGNERS="${a#*=}" ;;
+		*) ARGS+=("$a") ;;
+		esac
+	done
+}
+
+# sig_check <file> <signature file>: 0 when the signature is good; otherwise 1 and
+# SIG_REASON says why.
+sig_check() {
+	SIG_REASON=""
+	[ -s "$2" ] || { SIG_REASON="no signature ($(basename "$2"))"; return 1; }
+	[ -s "$ALLOWED_SIGNERS" ] || { SIG_REASON="no allowed signers file at $ALLOWED_SIGNERS (pass --allowed-signers=FILE)"; return 1; }
+	ssh-keygen -Y verify -f "$ALLOWED_SIGNERS" -I openctem-backup -n openctem-backup -s "$2" < "$1" > /dev/null 2>&1 ||
+		{ SIG_REASON="the signature of $(basename "$1") does not verify"; return 1; }
+}
+
+# sig_require <file> <signature file> <what>: sig_check, and stop on failure unless
+# --allow-unsigned (then log it loudly, to the journal too).
+sig_require() {
+	sig_check "$1" "$2" && return 0
+	if [ "$ALLOW_UNSIGNED" = yes ]; then
+		log "WARNING: $3: $SIG_REASON; continuing because of --allow-unsigned"
+		logger -t openctem-restore -p user.warning -- "$3 accepted WITHOUT a valid signature (--allow-unsigned): $SIG_REASON" || true
+		return 0
+	fi
+	die "$3: $SIG_REASON. The backup may have been planted or altered. Verify against the public key you kept off this host; only if you accept the risk, add --allow-unsigned"
+}
+
 newest() { find "$DEST" -mindepth 1 -maxdepth 1 -type d -name '20*Z' | sort | tail -n 1; }
 
 # stage <backup dir> <identity file or ""> <work dir>: plaintext copy of a
@@ -26,11 +71,14 @@ stage() {
 	[ -d "$src" ] || die "no backup directory $src"
 	if ls "$src"/*.age > /dev/null 2>&1; then
 		[ -n "$id" ] && [ -r "$id" ] || die "$src is encrypted: pass the age identity file (kept off this host; delete it after use)"
+		sig_require "$src/MANIFEST.sha256" "$src/MANIFEST.sha256.sig" "$src"
 		( cd "$src" && sha256sum -c --quiet MANIFEST.sha256 ) || die "MANIFEST.sha256 mismatch"
 		for f in "$src"/*.age; do
 			age -d -i "$id" -o "$w/$(basename "$f" .age)" "$f"
 		done
 	else
+		sig_require "$src/MANIFEST.sha256" "$src/MANIFEST.sha256.sig" "$src"
+		[ ! -f "$src/MANIFEST.sha256" ] || ( cd "$src" && sha256sum -c --quiet MANIFEST.sha256 ) || die "MANIFEST.sha256 mismatch"
 		cp -p "$src"/* "$w"/
 	fi
 	( cd "$w" && sha256sum -c --quiet SHA256SUMS ) || die "SHA256SUMS mismatch"

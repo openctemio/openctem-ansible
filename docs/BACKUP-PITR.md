@@ -12,14 +12,15 @@ time just before it. It is **off by default**.
 | RPO | `openctem_wal_archive_timeout` (300 s: a segment is closed after at most 5 minutes of activity) plus the upload interval (1 minute): about 6 minutes. The monitor alerts at 15 minutes of lag. |
 | RTO | base backup download and unpack, plus WAL replay: minutes for a small database; **measure it with the drill** and record the time. |
 | Scope | the database only. Uploaded files and the generated secrets are in the nightly backup; point-in-time recovery does not replace them. |
-| Retention | `backup_wal_retention_days` (14): base backups and WAL older than the window are deleted from the bucket, except the newest base backup older than the window, which anchors its first day. State this retention in the privacy policy: erased personal data stays in backups until it ages out. |
+| Retention | `backup_wal_retention_days` (14): base backups and WAL older than the window should be deleted from the bucket (by a lifecycle rule, or by the host with `backup_wal_prune: true`), except the newest base backup older than the window, which anchors its first day. State this retention in the privacy policy: erased personal data stays in backups until it ages out. |
 
 ## What you must provide
 
 1. **A bucket** on any S3-compatible service (a region and provider of your
    choice; it becomes a subprocessor and a cross-border transfer if abroad).
-   Use a private bucket with versioning off, and a **dedicated access key** that
-   may read, write and delete objects in this bucket only.
+   Use a private bucket with **versioning and object lock** (retention at least
+   `backup_wal_retention_days`) and a **dedicated, write-only access key** for the
+   host (see "Make the bucket append-only" below).
 2. **The access key in a file on the server**: `/opt/openctem/secrets/backup_remote.conf`
    (`backup_wal_remote_conf`), `root:root`, mode `0400` or `0600`. It never goes
    in the inventory or git. The play refuses to continue if it is missing or too open.
@@ -48,6 +49,67 @@ backup_age_recipient: age1...
 backup_wal_bucket: my-openctem-backups
 backup_wal_prefix: openctem          # a path in the bucket, default: the project name
 ```
+
+## Make the bucket append-only (host credentials cannot delete)
+
+The key on the host is the weakest point: root on the host, or ransomware, can
+use it. If it may delete, one command wipes every off-host copy. So:
+
+- **The host's key may only write and read, never delete.** For S3 policies
+  allow `s3:PutObject`, `s3:GetObject`, `s3:ListBucket` on the bucket and
+  deny `s3:DeleteObject`, `s3:DeleteObjectVersion`, `s3:PutBucketVersioning`,
+  `s3:PutLifecycleConfiguration`, `s3:BypassGovernanceRetention` and the
+  object-lock/retention writes. The key that administers the bucket stays with
+  you, off the host.
+- **Turn on versioning and object lock** with a default retention of at least
+  `backup_wal_retention_days` (compliance or governance mode): an overwrite or
+  delete then leaves the old version, and nothing can remove it before the retention ends.
+- **Prune by a lifecycle rule on the bucket**, not from the host: expire objects
+  (and noncurrent versions) under `<prefix>/` after the retention window plus a
+  margin (for example 14 days of `backup_wal_retention_days` plus 7). The
+  anchor base backup is the newest one older than the window, so the rule's age
+  must exceed the interval between base backups (weekly) plus the window.
+- The scripts therefore do **not** delete from the bucket by default
+  (`backup_wal_prune: false`). Set it to `true` only when you accept a delete-capable
+  key on the host (the weekly base backup then purges base backups and WAL past the
+  window itself).
+- Check it: with the host's key, `rclone delete` on an object must fail with
+  access denied.
+
+## Signatures: a bucket writer cannot plant a backup
+
+`age` encrypts to a public key, so anyone with the recipient (or the bucket)
+can produce a valid encrypted dump. Each object is therefore also **signed on
+the host** (`ssh-keygen -Y sign -n openctem-backup`) and restores verify
+before they decrypt or feed anything to `pg_restore`:
+
+| Signed object | Signature |
+|---|---|
+| nightly backup `MANIFEST.sha256` (lists every file's checksum) | `MANIFEST.sha256.sig` next to it |
+| WAL segment `<seg>.gz.age` | `<seg>.gz.age.sig` |
+| base backup `meta.json` (holds the checksum of `base.tar.gz.age`) | `meta.json.sig` |
+
+The backup play creates the key once (`/etc/openctem/backup-signing/id_ed25519`,
+directory 0700, key 0400, root) and prints its public key as an `allowed_signers`
+line. **Keep that line off the host** (password manager, your inventory repository),
+because a host that can be rooted must not be the only place that says what to trust.
+Give it to every restore, drill and point-in-time recovery:
+
+```bash
+sudo openctem-restore --pitr latest /root/pitr.key --yes --allowed-signers=/root/allowed_signers
+sudo openctem-restore-drill /var/backups/openctem/<UTC time> /root/drill.key --allowed-signers=/root/allowed_signers
+```
+
+or set `backup_signing_allowed_signers` in the inventory to put a copy on the host
+(`/etc/openctem/backup-allowed-signers`, the default), which lets the drill run
+there without the flag. An unsigned object or one that does not verify makes the
+restore stop (a base backup that fails is skipped in favour of an older good one).
+`--allow-unsigned` continues anyway and logs it loudly (journal tag
+`openctem-restore`); use it only for backups made before signing existed (they
+have no signature), and after you have checked their origin another way. After the
+first signed base backup, recoveries to later times need no flag. To rotate the key,
+delete `/etc/openctem/backup-signing/id_ed25519*`, run the play, and add the new
+line to your allowed_signers file next to the old one (old backups stay verifiable).
 
 ## Turn it on
 
@@ -78,7 +140,8 @@ rerunning the plays removes the units and tools; the objects in the bucket stay.
   container, encrypts the tar, uploads it, verifies the upload by checksum and only
   then writes `meta.json`, which marks the backup complete. Then it prunes.
 - Bucket layout: `<prefix>/wal/<segment>.gz.age`, `<prefix>/base/<UTC time>/base.tar.gz.age`
-  and `meta.json` (finished time, first WAL segment, checksum: no secrets).
+  and `meta.json` (finished time, first WAL segment, checksum: no secrets), each with a
+  `.sig` signature object next to it.
 
 ### Why small scripts instead of a backup framework
 
@@ -151,5 +214,5 @@ Configure `monitoring_webhook_url`, or the alerts only reach the journal.
 
 ## Rotating the bucket key
 
-Create a new key, write it over `backup_wal_remote_conf` (keep mode 0600), run
+Create a new write-only key, write it over `backup_wal_remote_conf` (keep mode 0600), run
 `sudo systemctl start openctem-wal-ship`, then delete the old key at the provider.

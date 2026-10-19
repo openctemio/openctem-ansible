@@ -10,6 +10,20 @@ backup_age_recipient: ''
 # Off-host copy, run after each encrypted backup with the new directory as $1.
 backup_offsite_command: ''
 backup_keep_days: 14
+# Signing (every backup manifest, WAL segment and base-backup meta.json is signed
+# on the host with an ed25519 key the role generates once; docs/BACKUP-PITR.md).
+# The operator keeps the PUBLIC key OFF the host as an allowed_signers file and
+# passes it to restores; this variable (optional) also puts a copy on the host
+# so the drill can verify there. A host that can be rooted must not be the only
+# place that decides what is trusted.
+backup_signing_dir: /etc/openctem/backup-signing
+backup_signing_allowed_signers: ''
+# Pruning from the host. Default off: the bucket credential on the host is
+# write-only and the bucket's lifecycle rule prunes. 'true' makes the weekly base
+# backup delete (rclone purge/delete) base backups and WAL past the retention
+# window, which needs a credential that can delete: then root on the host can
+# also wipe every off-host copy (docs/BACKUP-PITR.md).
+backup_wal_prune: false
 
 # --- Continuous archiving (openctem_wal_archive: true, roles/openctem_common) ----------
 # rclone remote definition ([openctem-backup], type s3) with the access token:

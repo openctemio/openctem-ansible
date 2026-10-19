@@ -2,9 +2,12 @@
 # {{ ansible_managed }}
 # Base backup of the whole database cluster for point-in-time recovery:
 # pg_basebackup (tar, with the WAL it needs) -> gzip -> age -> bucket, then
-# meta.json (written last: marks it complete), then the bucket is pruned to the
-# retention window ({{ backup_wal_retention_days }} days; the newest base backup older than the window stays,
-# it is the anchor of the window's first day). Weekly by openctem-base-backup.timer.
+# meta.json (written last: marks it complete; it carries the checksum of the
+# encrypted tar) and its signature with this host's backup key. Only when
+# backup_wal_prune is on (it needs a bucket key that can delete; default off, the
+# bucket's lifecycle rule prunes) is the bucket then pruned to the retention window
+# ({{ backup_wal_retention_days }} days; the newest base backup older than the window stays, it is the anchor of
+# the window's first day). Weekly by openctem-base-backup.timer.
 # shellcheck disable=SC2154,SC2034 # settings come from wal-common.sh
 set -euo pipefail
 umask 077
@@ -21,7 +24,7 @@ pg="$(docker ps -q --filter "label=com.docker.compose.project=$PROJECT" --filter
 start="$(date -u +%Y%m%dT%H%M%SZ)"
 dir="$WORK/base-$start"
 mkdir -p "$WORK"; mkdir -m 0700 "$dir"
-trap 'echo 1 > "$BSTATE/base_last_exit"; wlog "FAILED"; rm -rf -- "$dir"; rc purge "$REMOTE/base/$start" > /dev/null 2>&1 || true' ERR
+trap 'echo 1 > "$BSTATE/base_last_exit"; wlog "FAILED"; rm -rf -- "$dir"; [ "$PRUNE" != yes ] || rc purge "$REMOTE/base/$start" > /dev/null 2>&1 || true' ERR
 trap 'rm -rf -- "$dir"' EXIT
 
 wlog "pg_basebackup"
@@ -37,13 +40,22 @@ rc copyto "/work/base-$start/base.tar.gz.age" "$REMOTE/base/$start/base.tar.gz.a
 # What the bucket holds must be what was encrypted here.
 rc cat "$REMOTE/base/$start/base.tar.gz.age" | sha256sum | grep -q "^$sha " || wdie "the uploaded base backup does not match its checksum"
 finished="$(date -u +%Y%m%dT%H%M%SZ)"
-printf '{"finished":"%s","start_wal":"%s","sha256":"%s"}\n' "$finished" "$start_wal" "$sha" | rc rcat "$REMOTE/base/$start/meta.json"
+printf '{"finished":"%s","start_wal":"%s","sha256":"%s"}\n' "$finished" "$start_wal" "$sha" > "$dir/meta.json"
+ssh-keygen -q -Y sign -n openctem-backup -f "$SIGN_KEY" "$dir/meta.json"
+[ -s "$dir/meta.json.sig" ] || wdie "signing meta.json failed"
+# The signature first: meta.json marks the base backup complete.
+rc copyto "/work/base-$start/meta.json.sig" "$REMOTE/base/$start/meta.json.sig"
+rc copyto "/work/base-$start/meta.json" "$REMOTE/base/$start/meta.json"
 date +%s > "$BSTATE/base_last_success"
 echo 0 > "$BSTATE/base_last_exit"
 wlog "OK base backup $start (WAL from $start_wal)"
 trap - ERR
 
 # --- Retention ---------------------------------------------------------------------
+if [ "$PRUNE" != yes ]; then
+	wlog "pruning is off (backup_wal_prune): the bucket's lifecycle rule removes old base backups and WAL"
+	exit 0
+fi
 ago() { date -u -d "@$(( $(date +%s) - $1 * 86400 ))" +%Y%m%dT%H%M%SZ; }
 cutoff="$(ago "$RETENTION_DAYS")"
 bases=()
