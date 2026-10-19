@@ -190,8 +190,16 @@ sql "SELECT pg_switch_wal()" > /dev/null
 for _ in $(seq 1 30); do [ -n "$(find "$work/wal-spool" -maxdepth 1 -type f -name '0*' | head -n 1)" ] && break; sleep 1; done
 ubuntu "
 	echo '-- WAL upload'
+	# The database keeps archiving while the upload runs (it takes tens of
+	# seconds for a few dozen segments), so a segment that lands after the script
+	# listed the spool is correctly left for the next run. Assert on what was
+	# there before the upload, and show what is left if one of those stayed.
+	before=\$(mktemp)
+	find $work/wal-spool -maxdepth 1 -type f -name '0*' -printf '%f\\n' | sort > \"\$before\"
 	openctem-wal-ship
-	[ -z \"\$(find $work/wal-spool -maxdepth 1 -type f -name '0*')\" ] || { echo 'spool not emptied'; exit 1; }
+	left=\$(find $work/wal-spool -maxdepth 1 -type f -name '0*' -printf '%f\\n' | sort | comm -12 \"\$before\" -)
+	[ -z \"\$left\" ] || { echo \"spool not emptied, still there: \$left\"; ls -la $work/wal-spool; exit 1; }
+	rm -f \"\$before\"
 	echo '-- the bucket holds only encrypted objects'
 	if grep -rIl 'CREATE TABLE\|PGDMP\|pitr_marker' $work/s3data > /dev/null 2>&1; then echo 'plaintext in the bucket'; exit 1; fi
 	echo '-- drill refuses: no identity, a time before the first base backup'
