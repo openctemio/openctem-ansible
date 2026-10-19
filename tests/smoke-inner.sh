@@ -146,7 +146,7 @@ ubuntu "
 	age-keygen -y /root/drill-identity.txt > /etc/openctem/backup-recipients.txt
 	openctem-backup
 	last=\"\$(cat $work/bstate/last_path)\"
-	if ls \"\$last\" | grep -v -e '\.age\$' -e '^MANIFEST.sha256\$' | grep -q .; then echo 'plaintext file in an age backup'; exit 1; fi
+	if ls \"\$last\" | grep -v -e '\.age\$' -e '^MANIFEST.sha256\$' -e '^MANIFEST.sha256.sig\$' | grep -q .; then echo 'plaintext file in an age backup'; exit 1; fi
 	if openctem-restore-drill \"\$last\" 2> /dev/null; then echo 'drill ran without identity'; exit 1; fi
 	openctem-restore-drill \"\$last\" /root/drill-identity.txt
 	echo '-- a planted dump with a recomputed manifest is refused (the manifest signature no longer verifies)'
