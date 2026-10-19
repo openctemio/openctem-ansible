@@ -24,7 +24,7 @@
 - name: Webhook settings
   ansible.builtin.copy:
     dest: /etc/openctem/monitor.env
-    content: "WEBHOOK_URL='{{ monitoring_webhook_url }}'\n"
+    content: "WEBHOOK_URL={{ monitoring_webhook_url | quote }}\n"
     owner: root
     group: root
     mode: '0600'

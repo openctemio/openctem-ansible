@@ -403,6 +403,34 @@ services:
           cpus: "{{ openctem_cpus_api }}"
     logging: *logging
 
+  # --- First administrator: a one-shot tool, never part of `up` ------------------
+  # Run only through openctem-bootstrap-admin (`run --rm --no-deps`). It writes
+  # the admin tables, which the API's app role cannot, so it connects as the
+  # schema owner. That password lives in bootstrap-admin.env, read by this
+  # container only: it is never added to api.env. The tool prints one-time
+  # credentials, so no log driver keeps them. No ports, data network only.
+  bootstrap-admin:
+    profiles: [tools]
+    image: {{ rel.api }}
+    entrypoint: ["/app/bootstrap-admin"]
+    environment:
+      DB_HOST: postgres
+      DB_PORT: "5432"
+      DB_USER: openctem_app
+      DB_MIGRATE_USER: openctem_migrator
+      DB_NAME: openctem
+      DB_SSLMODE: require
+      APP_URL: https://{{ openctem_app_host }}
+    # DB_MIGRATE_PASSWORD, APP_ENCRYPTION_KEY
+    env_file:
+      - {{ openctem_secrets_dir }}/bootstrap-admin.env
+    networks: [data]
+    <<: *hardening
+    read_only: true
+    restart: "no"
+    logging:
+      driver: none
+
 {% if openctem_job_signer | bool %}
   # --- Job signer: no network, own key volume, socket shared with the API only --
   signer:
