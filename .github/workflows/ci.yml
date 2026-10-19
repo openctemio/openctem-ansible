@@ -64,6 +64,8 @@ jobs:
           tests/secrets-fingerprint.sh "$r/scripts/openctem-secrets"
       - name: Signed backups, restore guards, opt-in pruning (stub docker)
         run: tests/backup-signing.sh "$RUNNER_TEMP/render"
+      - name: First-admin one-shot service and monitor webhook handling
+        run: tests/bootstrap-admin.sh "$RUNNER_TEMP/render"
       - name: shellcheck (rendered scripts and test scripts)
         run: |
           shellcheck -S warning -s bash "$RUNNER_TEMP"/render/scripts/* tests/*.sh scripts/*.sh
@@ -72,7 +74,7 @@ jobs:
           set -e
           r="$RUNNER_TEMP/render"
           mkdir -p "$r/secrets"
-          for f in api.env migrate.env db-roles.env redis.env; do echo "X=dummy" > "$r/secrets/$f"; done
+          for f in api.env migrate.env bootstrap-admin.env db-roles.env redis.env; do echo "X=dummy" > "$r/secrets/$f"; done
           ansible-playbook tests/render.yml -e render_dir="$r" -e openctem_root="$r" -e openctem_project=ci
           docker compose -p ci -f "$r/compose.yml" -f "$r/compose.cloudflared.yml" config --quiet
           # locally managed tunnel: the route file is mounted and the ingress is valid
