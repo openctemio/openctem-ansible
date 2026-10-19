@@ -154,7 +154,10 @@ add an administrator. Nothing to configure:
 - `db-roles` creates the role and moves the tables, and a `db-grants` job
   runs the same script after the migrations, before the API;
 - the API opens a second small pool as `openctem_console`, and
-  `openctem-bootstrap-admin` connects as it.
+  `openctem-bootstrap-admin` does not: it runs a one-shot `bootstrap-admin`
+  container (compose profile `tools`, no log driver, data network only) with the
+  schema owner's password from its own `bootstrap-admin.env`, which the API
+  never reads.
 
 A rollback to a release without the flag needs nothing either: that release's
 `db-roles` runs the script without `admin_user`, which gives `openctem_app`

@@ -23,4 +23,6 @@ esac
 compose_files=(-f "$ROOT/compose.yml")
 [ -f "$ROOT/compose.cloudflared.yml" ] && compose_files+=(-f "$ROOT/compose.cloudflared.yml")
 dc() { docker compose -p "$PROJECT" --project-directory "$ROOT" "${compose_files[@]}" "$@"; }
-dc exec api /app/bootstrap-admin "$@"
+# A one-shot container from the API image with the schema owner's credentials
+# (bootstrap-admin.env); the running API keeps the app role only.
+dc run --rm --no-deps bootstrap-admin "$@"
