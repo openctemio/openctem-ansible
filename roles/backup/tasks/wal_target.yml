@@ -1,0 +1,49 @@
+---
+# Pure checks of the archive target against the remote definition's text
+# (backup_wal_conf_text); used by wal.yml and by tests/backup-target.sh.
+- name: The target is one this kit supports
+  ansible.builtin.assert:
+    that: backup_wal_target in ['s3', 'sftp']
+    fail_msg: "backup_wal_target must be s3 (any S3-compatible service) or sftp, not '{{ backup_wal_target }}'."
+
+- name: S3 bucket name
+  ansible.builtin.assert:
+    that: backup_wal_bucket is match('^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$')
+    fail_msg: backup_wal_bucket is not a valid bucket name (3-63 characters of a-z, 0-9, dot and dash).
+  when: backup_wal_target == 's3'
+
+- name: SFTP directory
+  ansible.builtin.assert:
+    that:
+      - backup_wal_bucket is match('^[A-Za-z0-9._-]+(/[A-Za-z0-9._-]+)*$')
+      - "'..' not in backup_wal_bucket.split('/')"
+    fail_msg: >-
+      For sftp, backup_wal_bucket is a directory relative to the login directory (letters, digits, . _ - and /),
+      without '..'.
+  when: backup_wal_target == 'sftp'
+
+# The text is only searched here, never printed.
+- name: The remote definition is of the configured type
+  ansible.builtin.assert:
+    that:
+      - backup_wal_conf_text is search('(?m)^\s*\[openctem-backup\]\s*$')
+      - backup_wal_conf_text is search('(?m)^\s*type\s*=\s*' ~ backup_wal_target ~ '\s*$')
+    fail_msg: >-
+      {{ backup_wal_remote_conf }} must define the remote [openctem-backup] with type = {{ backup_wal_target }}
+      (docs/BACKUP-PITR.md, "Targets").
+    quiet: true
+  when: not ansible_check_mode
+
+- name: The sftp remote pins the host key and uses the key file
+  ansible.builtin.assert:
+    that:
+      - backup_wal_conf_text is search('(?m)^\s*known_hosts_file\s*=\s*/config/known_hosts\s*$')
+      - backup_wal_conf_text is search('(?m)^\s*key_file\s*=\s*/config/sftp_key\s*$')
+      - backup_wal_conf_text is not search('(?mi)^\s*(pass|ssh|key_pem)\s*=')
+    fail_msg: >-
+      For sftp the remote needs known_hosts_file = /config/known_hosts (the host key is pinned, never
+      trusted on first use) and key_file = /config/sftp_key, and no password, ssh command or inline key.
+    quiet: true
+  when:
+    - backup_wal_target == 'sftp'
+    - not ansible_check_mode

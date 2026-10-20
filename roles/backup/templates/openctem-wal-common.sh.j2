@@ -18,6 +18,11 @@ WORK='{{ backup_state_dir }}/work'
 RCLONE_CONF='{{ backup_wal_remote_conf }}'
 RCLONE_IMAGE='{{ openctem_rclone_image }}'
 REMOTE='openctem-backup:{{ backup_wal_bucket }}/{{ backup_wal_prefix }}'
+TARGET='{{ backup_wal_target }}'
+# sftp: the pinned host key and the login key, read-only, at the paths the remote definition names.
+SFTP_KNOWN_HOSTS='{{ backup_wal_sftp_known_hosts }}'
+SFTP_KEY='{{ backup_wal_sftp_key }}'
+RCLONE_EXTRA=({% if backup_wal_target == 'sftp' %}-v "$SFTP_KNOWN_HOSTS:/config/known_hosts:ro" -v "$SFTP_KEY:/config/sftp_key:ro"{% endif %})
 RECIPIENTS=/etc/openctem/backup-recipients.txt
 RETENTION_DAYS='{{ backup_wal_retention_days | int }}'
 # Pruning from this host needs a bucket key that can delete: off unless asked for
@@ -46,12 +51,16 @@ wcompose() {
 rc() {
 	docker run --rm -i --read-only --tmpfs /tmp --cap-drop ALL --security-opt no-new-privileges --memory 1g \
 		-e HOME=/tmp -e RCLONE_LOG_LEVEL=ERROR -e RCLONE_S3_NO_CHECK_BUCKET=true -e RCLONE_RETRIES=5 -e RCLONE_LOW_LEVEL_RETRIES=10 \
-		-v "$RCLONE_CONF:/config/rclone/rclone.conf:ro" -v "$WORK:/work" "$RCLONE_IMAGE" "$@"
+		-v "$RCLONE_CONF:/config/rclone/rclone.conf:ro" "${RCLONE_EXTRA[@]}" -v "$WORK:/work" "$RCLONE_IMAGE" "$@"
 }
 
 wal_setup_check() {
 	[ -s "$RECIPIENTS" ] || wdie "$RECIPIENTS is empty: continuous archiving needs backup_age_recipient"
 	[ -r "$RCLONE_CONF" ] || wdie "no remote definition at $RCLONE_CONF"
+	if [ "$TARGET" = sftp ]; then
+		[ -r "$SFTP_KNOWN_HOSTS" ] || wdie "no pinned host key at $SFTP_KNOWN_HOSTS"
+		[ -r "$SFTP_KEY" ] || wdie "no login key at $SFTP_KEY"
+	fi
 	[ -r "$SIGN_KEY" ] || wdie "no signing key $SIGN_KEY: run the backup play (playbooks/55-backup.yml)"
 	command -v age > /dev/null || wdie "age is not installed"
 	mkdir -p "$WORK" "$BSTATE"

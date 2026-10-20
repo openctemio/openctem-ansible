@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# {{ ansible_managed }}
+# Proves that the credential on this host can write and read the archive but not
+# delete from it: writes a small probe object, reads it back, then tries to delete
+# it. Exit 0: delete refused (append-only). Exit 3: delete worked, so root on this
+# host could wipe the archive (restrict the credential: docs/BACKUP-PITR.md).
+# A refused delete leaves the probe (a few bytes under <prefix>/probe/); a bucket
+# lifecycle rule removes it. On a versioned bucket a delete marker counts as a
+# delete: lock the bucket and leave backup_wal_require_append_only off there.
+set -Eeuo pipefail
+umask 077
+# shellcheck source=/dev/null
+. /usr/local/lib/openctem/wal-common.sh
+wal_setup_check
+name="probe/$(date -u +%Y%m%dT%H%M%SZ)-$$"
+printf 'append-only probe\n' > "$WORK/probe.txt"
+rc copyto /work/probe.txt "$REMOTE/$name" || wdie "cannot write to $TARGET target (credential or remote definition)"
+rc cat "$REMOTE/$name" > /dev/null || wdie "cannot read the probe back"
+if rc deletefile "$REMOTE/$name" 2> /dev/null; then
+	wlog "ERROR: the credential on this host CAN DELETE from the archive: a compromised host could wipe every off-host copy" >&2
+	exit 3
+fi
+wlog "ok: write and read work, delete is refused"
