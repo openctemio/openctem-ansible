@@ -61,17 +61,16 @@ if [ -e "$root/compose.prev.yml" ]; then echo "an unchanged redeploy created a r
 echo "== secret files on the target: modes and numeric owners"
 docker exec e2e-target bash -c "stat -c '%a %u:%g %n' $root/secrets $root/secrets/* | sort -k3"
 
-echo "== upgrade $from -> $to (job signer on as well), then rollback"
+echo "== upgrade $from -> $to, then rollback"
 sed -i "s/^openctem_version: .*/openctem_version: $to/" /e2e/inv/group_vars/all.yml
-echo 'openctem_job_signer: true' >> /e2e/inv/group_vars/all.yml
 controller "ansible-playbook -i /e2e/inv/hosts.ini playbooks/50-openctem.yml" > /e2e/run3.log || true
 grep -q 'failed=0' /e2e/run3.log || { tail -n 60 /e2e/run3.log; exit 1; }
 [ "$(cat "$root/state/deployed-version")" = "$to" ] || { echo "deployed-version not $to"; exit 1; }
 grep -q "^# OpenCTEM $to\." "$root/compose.yml"
-grep -q 'openctem-signer' "$root/compose.yml"
+grep -q 'openctem-signer' "$root/compose.yml"  # the signer is on by default, in both versions
 echo "  upgraded to $to, verify passed"
 controller "ansible-playbook -i /e2e/inv/hosts.ini playbooks/71-rollback.yml" > /e2e/run4.log || true
 grep -q 'failed=0' /e2e/run4.log || { tail -n 60 /e2e/run4.log; exit 1; }
-if grep -q 'openctem-signer' "$root/compose.yml"; then echo "rollback did not restore the previous compose file"; exit 1; fi
+grep -q "^# OpenCTEM $from\." "$root/compose.yml" || { echo "rollback did not restore the previous compose file"; exit 1; }
 [ "$(cat "$root/state/deployed-version")" = "$from" ] || { echo "deployed-version not $from after rollback"; exit 1; }
 grep -E 'Rolled back' /e2e/run4.log | head -1
