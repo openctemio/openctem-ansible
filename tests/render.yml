@@ -47,6 +47,7 @@
         - { role: backup, src: openctem-wal-common.sh.j2, dest: scripts/wal-common.sh }
         - { role: backup, src: openctem-wal-ship.sh.j2, dest: scripts/openctem-wal-ship }
         - { role: backup, src: openctem-base-backup.sh.j2, dest: scripts/openctem-base-backup }
+        - { role: backup, src: openctem-backup-probe.sh.j2, dest: scripts/openctem-backup-probe }
         - { role: monitoring, src: openctem-monitor.sh.j2, dest: scripts/openctem-monitor }
         - { role: firewall, src: openctem-egress.sh.j2, dest: scripts/openctem-egress }
         - { role: os_baseline, src: openctem.rules.j2, dest: audit.rules }

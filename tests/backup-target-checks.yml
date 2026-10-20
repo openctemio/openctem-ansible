@@ -1,0 +1,13 @@
+---
+# Runs only the archive target checks of roles/backup (tests/backup-target.sh).
+- name: Archive target checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/backup/defaults/main.yml
+    - vars.yml
+  tasks:
+    - name: Checks
+      ansible.builtin.import_tasks: ../roles/backup/tasks/wal_target.yml

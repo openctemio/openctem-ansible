@@ -16,7 +16,7 @@ time just before it. It is **off by default**.
 
 ## What you must provide
 
-1. **A bucket** on any S3-compatible service (a region and provider of your
+1. **A bucket** on any S3-compatible service (or, for `backup_wal_target: sftp`, a directory on another host: see "Targets") (a region and provider of your
    choice; it becomes a subprocessor and a cross-border transfer if abroad).
    Use a private bucket with **versioning and object lock** (retention at least
    `backup_wal_retention_days`) and a **dedicated, write-only access key** for the
@@ -49,6 +49,86 @@ backup_age_recipient: age1...
 backup_wal_bucket: my-openctem-backups
 backup_wal_prefix: openctem          # a path in the bucket, default: the project name
 ```
+
+## Targets
+
+`backup_wal_target` chooses where the archive goes. Everything above (age encryption on this host,
+signatures, the restore and drill tools) is the same for every target; only the remote definition
+in `backup_wal_remote_conf` differs. The play checks that its `type` matches the target.
+
+| Target | `backup_wal_target` | `backup_wal_bucket` |
+|---|---|---|
+| AWS S3, Cloudflare R2, MinIO, any S3-compatible service | `s3` (default) | the bucket name |
+| Another host over SFTP | `sftp` | a directory relative to the login directory |
+
+**AWS S3**: `provider = AWS`, `region = <region>`, and the key's policy from "Make the bucket
+append-only" below.
+
+**Cloudflare R2**: create the bucket and an R2 API token limited to it with *Object Read & Write*.
+
+```ini
+[openctem-backup]
+type = s3
+provider = Cloudflare
+access_key_id = <key id>
+secret_access_key = <secret>
+endpoint = https://<account id>.r2.cloudflarestorage.com
+```
+
+**MinIO** (or another S3-compatible server):
+
+```ini
+[openctem-backup]
+type = s3
+provider = Minio
+access_key_id = <key id>
+secret_access_key = <secret>
+endpoint = https://minio.internal.example:9000
+```
+
+Use TLS. Create the bucket with object locking enabled if you want immutability, and a user whose
+policy allows this bucket only.
+
+**Another host (SFTP)**: the host key is pinned and the login key is a file; a password, an ssh
+command and an inline key are refused.
+
+```yaml
+backup_wal_target: sftp
+backup_wal_bucket: backups/openctem     # directory on the host; the prefix is added below it
+```
+
+Place two files as `root:root`, mode `0400` or `0600`, next to the remote definition:
+
+- `backup_known_hosts` (`backup_wal_sftp_known_hosts`): the host's keys, taken from a channel you
+  trust (the host's console), **all key types**: `for t in ed25519 ecdsa rsa; do ssh-keyscan -t $t backup.example.net; done`
+  gives the lines, and the SFTP library may negotiate any of them.
+- `backup_sftp_key` (`backup_wal_sftp_key`): a dedicated private key, unencrypted
+  (`ssh-keygen -t ed25519 -N ''`); install its public half for a user that can only write
+  into its own directory.
+
+```ini
+[openctem-backup]
+type = sftp
+host = backup.example.net
+user = openctem
+shell_type = unix
+md5sum_command = none
+sha1sum_command = none
+known_hosts_file = /config/known_hosts
+key_file = /config/sftp_key
+```
+
+(The three lines after `user` stop rclone from probing the server and trying to write its
+configuration, which is read-only here.) For immutability, snapshot the directory on the backup
+host with a mechanism the SFTP user cannot reach (for example ZFS snapshots taken there).
+
+### Prove the credential cannot delete
+
+`openctem-backup-probe` writes a probe object with the host's credential, reads it back and tries to
+delete it. It exits 0 when the delete is refused and 3 when it works (root on this host could then wipe
+the archive). A refused delete leaves a few bytes under `<prefix>/probe/`; a lifecycle rule removes them.
+Set `backup_wal_require_append_only: true` to make the backup play run it and stop on failure. On a
+versioned bucket a delete marker counts as a delete: rely on object lock there and leave it off.
 
 ## Make the bucket append-only (host credentials cannot delete)
 

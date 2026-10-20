@@ -29,8 +29,21 @@ backup_wal_prune: false
 # rclone remote definition ([openctem-backup], type s3) with the access token:
 # YOU place it on the server, root:root mode 0400/0600. Never in the inventory.
 backup_wal_remote_conf: "{{ openctem_secrets_dir }}/backup_remote.conf"
-# Bucket and the path inside it (several stacks may share one bucket).
+# Where the archive goes: s3 (any S3-compatible service: AWS S3, Cloudflare R2, MinIO, ...)
+# or sftp (another host). The remote definition in backup_wal_remote_conf must be of the same type.
+backup_wal_target: s3
+# Bucket (s3) or the directory on the SFTP host (sftp, relative to the login directory),
+# and the path inside it (several stacks may share one bucket).
 backup_wal_bucket: ''
+# sftp only: YOU place both on the server, root:root mode 0400/0600, and the remote definition
+# names them as known_hosts_file = /config/known_hosts and key_file = /config/sftp_key. The host
+# key is pinned in the first file: the archive is never sent to an unverified host.
+backup_wal_sftp_known_hosts: "{{ openctem_secrets_dir }}/backup_known_hosts"
+backup_wal_sftp_key: "{{ openctem_secrets_dir }}/backup_sftp_key"
+# true: the play writes a probe object with the host's credential and then tries to delete
+# it, and stops when the delete works (the credential must not be able to delete: docs/BACKUP-PITR.md).
+# Also runnable any time: openctem-backup-probe. Default off: not every service can be restricted that way.
+backup_wal_require_append_only: false
 backup_wal_prefix: "{{ openctem_project }}"
 # Point-in-time recovery window: base backups and WAL older than this (and
 # older than the newest base backup before the window) are deleted from the bucket.

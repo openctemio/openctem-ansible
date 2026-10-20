@@ -7,12 +7,11 @@
     that:
       - backup_mode == 'age'
       - backup_wal_bucket | length > 0
-      - backup_wal_bucket is match('^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$')
       - backup_wal_prefix is match('^[A-Za-z0-9._-]+$')
       - backup_wal_retention_days | int >= 2
     fail_msg: >-
       openctem_wal_archive needs backup_age_recipient (WAL is encrypted on this host), backup_wal_bucket
-      (a bucket name), a plain backup_wal_prefix and backup_wal_retention_days >= 2.
+      (a bucket name, or a directory for sftp), a plain backup_wal_prefix and backup_wal_retention_days >= 2.
 
 - name: The remote definition is in place
   ansible.builtin.stat:
@@ -27,6 +26,43 @@
     fail_msg: >-
       Place the rclone remote definition ([openctem-backup], type s3, endpoint, access key) at
       {{ backup_wal_remote_conf }} as root:root with mode 0400 or 0600 (docs/BACKUP-PITR.md). It never goes in the inventory or git.
+
+# The type of the remote must match backup_wal_target; for sftp the host key is
+# pinned and the key file is the owner's. The file is read here only to check it
+# and never printed.
+- name: Read the remote definition (not logged)
+  ansible.builtin.slurp:
+    src: "{{ backup_wal_remote_conf }}"
+  register: backup_wal_conf_raw
+  no_log: true
+  when: not ansible_check_mode
+
+- name: Target and remote definition agree
+  ansible.builtin.include_tasks: wal_target.yml
+  vars:
+    backup_wal_conf_text: "{{ (backup_wal_conf_raw.content | b64decode) if not ansible_check_mode else '' }}"
+
+- name: Files of the sftp target
+  ansible.builtin.stat:
+    path: "{{ item }}"
+  loop:
+    - "{{ backup_wal_sftp_known_hosts }}"
+    - "{{ backup_wal_sftp_key }}"
+  register: backup_wal_sftp_files
+  when: backup_wal_target == 'sftp'
+
+- name: The sftp host key list and key are the owner's, root-only
+  ansible.builtin.assert:
+    that:
+      - ansible_check_mode or item.stat.exists
+      - ansible_check_mode or (item.stat.pw_name == 'root' and item.stat.mode in ['0400', '0600'])
+    fail_msg: >-
+      Place the SFTP host's known_hosts line at {{ backup_wal_sftp_known_hosts }} and the login key at
+      {{ backup_wal_sftp_key }}, root:root mode 0400 or 0600 (docs/BACKUP-PITR.md). They never go in the inventory or git.
+  loop: "{{ backup_wal_sftp_files.results }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: backup_wal_target == 'sftp'
 
 # Postgres (uid 999) writes finished segments here, root's uploader empties it.
 - name: WAL spool directory
@@ -48,6 +84,16 @@
     - { src: openctem-wal-common.sh.j2, dest: /usr/local/lib/openctem/wal-common.sh, mode: '0644' }
     - { src: openctem-wal-ship.sh.j2, dest: /usr/local/sbin/openctem-wal-ship, mode: '0750' }
     - { src: openctem-base-backup.sh.j2, dest: /usr/local/sbin/openctem-base-backup, mode: '0750' }
+    - { src: openctem-backup-probe.sh.j2, dest: /usr/local/sbin/openctem-backup-probe, mode: '0750' }
+
+# The credential on this host must not be able to delete: prove it, when asked.
+- name: The host's credential cannot delete from the archive
+  ansible.builtin.command:
+    argv: [/usr/local/sbin/openctem-backup-probe]
+  changed_when: false
+  when:
+    - backup_wal_require_append_only | bool
+    - not ansible_check_mode
 
 - name: Uploader and base backup units
   ansible.builtin.copy:
