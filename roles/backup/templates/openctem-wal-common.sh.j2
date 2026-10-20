@@ -16,7 +16,7 @@ SPOOL='{{ openctem_wal_spool_dir }}'
 BSTATE='{{ backup_state_dir }}'
 WORK='{{ backup_state_dir }}/work'
 RCLONE_CONF='{{ backup_wal_remote_conf }}'
-RCLONE_IMAGE='{{ openctem_rclone_image }}'
+RCLONE_IMAGE='{{ openctem_rclone_ref }}'
 REMOTE='openctem-backup:{{ backup_wal_bucket }}/{{ backup_wal_prefix }}'
 TARGET='{{ backup_wal_target }}'
 # sftp: the pinned host key and the login key, read-only, at the paths the remote definition names.
@@ -30,7 +30,7 @@ RETENTION_DAYS='{{ backup_wal_retention_days | int }}'
 PRUNE='{{ 'yes' if backup_wal_prune | bool else 'no' }}'
 SIGN_KEY='{{ backup_signing_dir }}/id_ed25519'
 FETCH_SLACK_HOURS="${OPENCTEM_PITR_SLACK_HOURS:-{{ backup_pitr_fetch_slack_hours | int }}}"
-PG_IMAGE='{{ openctem_postgres_image }}'
+PG_IMAGE='{{ openctem_postgres_ref }}'
 ROOT='{{ openctem_root }}'
 PROJECT='{{ openctem_project }}'
 case "$PROJECT" in

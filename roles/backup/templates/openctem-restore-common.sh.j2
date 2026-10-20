@@ -3,7 +3,7 @@
 # Shared by openctem-restore-drill and openctem-restore (sourced).
 SECRETS='{{ openctem_secrets_dir }}'
 DEST='{{ backup_dir }}'
-PG_IMAGE='{{ openctem_postgres_image }}'
+PG_IMAGE='{{ openctem_postgres_ref }}'
 log() { echo "$(basename "$0"): $*"; }
 die() { log "ERROR: $*" >&2; exit 1; }
 # Compose is always called with an explicit project and file list, never

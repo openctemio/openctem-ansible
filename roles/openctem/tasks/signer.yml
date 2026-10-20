@@ -10,7 +10,7 @@
 - name: Key file present in the volume
   ansible.builtin.command: >-
     docker run --rm --network none -v {{ openctem_project }}_signer-keys:/k:ro
-    {{ openctem_postgres_image }} test -s /k/signer.pem
+    {{ openctem_postgres_ref }} test -s /k/signer.pem
   register: openctem_signer_key
   changed_when: false
   failed_when: false

@@ -1,0 +1,15 @@
+---
+# Runs only the signature check of roles/openctem against the `docker` on PATH
+# (tests/registry-mirror.sh puts a recording stub there).
+- name: Signature check
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/openctem/defaults/main.yml
+    - ../versions.yml
+    - vars.yml
+  tasks:
+    - name: Verify
+      ansible.builtin.import_tasks: ../roles/openctem/tasks/signatures.yml

@@ -12,6 +12,10 @@
       - cloudflared_image is search('@sha256:[0-9a-f]{64}$')
     fail_msg: '{{ openctem_version }} is not in openctem_releases, or an image is not pinned by digest (scripts/vendor-release.sh).'
 
+# Private registry settings (openctem_registry_mirror and friends).
+- name: Registry mirror settings
+  ansible.builtin.import_tasks: mirror_checks.yml
+
 - name: A release with the console service pins the console image by digest
   ansible.builtin.assert:
     that: openctem_releases[openctem_version].console | default('') is search('^ghcr[.]io/openctemio/openctem-console@sha256:[0-9a-f]{64}$')

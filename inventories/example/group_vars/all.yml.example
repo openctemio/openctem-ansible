@@ -13,6 +13,13 @@ openctem_app_host: ctem.example.com
 # --- Release (must be a key of openctem_releases in versions.yml) ------------------
 openctem_version: v0.12.0
 
+# --- Private registry / air-gapped (optional; README "Private registry / air-gapped") ---
+# The mirror must hold the images AND their cosign signatures (cosign copy / oras cp -r).
+# openctem_registry_mirror: registry.example.com/openctem           # replaces ghcr.io/openctemio
+# openctem_third_party_registry_mirror: registry.example.com/mirror # replaces docker.io / ghcr.io hosts, keeps paths
+# openctem_registry_docker_config_dir: /root/.docker                # login for the cosign check
+# openctem_registry_ca_file: /etc/ssl/certs/registry-ca.pem
+
 # --- Ingress -----------------------------------------------------------------------
 # cloudflared (default): Cloudflare Tunnel, no inbound port at all.
 # loopback: gateway on 127.0.0.1:openctem_loopback_port for your own TLS proxy.

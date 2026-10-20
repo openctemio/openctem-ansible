@@ -2,9 +2,13 @@
 # Keyless cosign verification of every OpenCTEM image digest against the
 # release workflow's identity at this exact tag, BEFORE anything is pulled
 # into the stack. cosign itself runs from an image pinned by digest.
+# With openctem_registry_mirror the signature is looked up on the mirror reference
+# (copied there as an OCI referrer) and checked against the same identity and issuer.
 - name: Verify the release signatures
   ansible.builtin.command:
-    argv:
+    argv: "{{ openctem_cosign_run + openctem_cosign_registry_args + openctem_cosign_verify }}"
+  vars:
+    openctem_cosign_run:
       - docker
       - run
       - --rm
@@ -13,7 +17,8 @@
       - --security-opt=no-new-privileges:true
       - --tmpfs=/tmp:size=64m
       - --env=HOME=/tmp
-      - "{{ openctem_cosign_image }}"
+    openctem_cosign_verify:
+      - "{{ openctem_cosign_ref }}"
       - verify
       - "{{ item.value }}"
       - --certificate-identity
@@ -22,8 +27,16 @@
       - "{{ openctem_cosign_issuer }}"
       - --output
       - text
-  # Images only: the release's flags (admin_plane, console_service, ...) are not images.
-  loop: "{{ openctem_releases[openctem_version] | dict2items | selectattr('key', 'in', ['api', 'web', 'gateway', 'migrations', 'console']) | list }}"
+    # Registry login and CA of a private mirror (both empty by default).
+    openctem_cosign_registry_args: >-
+      {{ (['--env=DOCKER_CONFIG=/registry-auth',
+      '--volume=' ~ openctem_registry_docker_config_dir ~ ':/registry-auth:ro']
+      if openctem_registry_docker_config_dir | length > 0 else [])
+      + (['--env=SSL_CERT_FILE=/registry-ca.pem',
+      '--volume=' ~ openctem_registry_ca_file ~ ':/registry-ca.pem:ro']
+      if openctem_registry_ca_file | length > 0 else []) }}
+  # Images only (the release's flags are not images), as pulled: through the mirror when set.
+  loop: "{{ openctem_images | dict2items }}"
   loop_control:
     label: "{{ item.key }}"
   changed_when: false
