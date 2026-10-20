@@ -1,4 +1,5 @@
 {% set rel = openctem_releases[openctem_version] %}
+{% set img = openctem_images %}
 {% set admin_plane = rel.admin_plane | default(false) | bool %}
 {% set console_db_role = rel.console_db_role | default(false) | bool %}
 {% set console_service = rel.console_service | default(false) | bool %}
@@ -37,7 +38,7 @@ x-hardening: &hardening
 services:
   # --- Gateway: one origin, routes web and API planes (plain HTTP inside) -------
   gateway-init:
-    image: {{ rel.gateway }}
+    image: {{ img.gateway }}
     user: "0:0"
     entrypoint: ["chown", "-R", "1000:1000", "/data", "/config"]
     network_mode: none
@@ -53,7 +54,7 @@ services:
     logging: *logging
 
   gateway:
-    image: {{ rel.gateway }}
+    image: {{ img.gateway }}
     user: "1000:1000"
 {% if openctem_ingress == 'loopback' %}
     ports:
@@ -139,7 +140,7 @@ services:
 
   # --- Web console --------------------------------------------------------------
   web:
-    image: {{ rel.web }}
+    image: {{ img.web }}
     environment:
       NODE_ENV: production
       BACKEND_API_URL: http://api:8080
@@ -183,7 +184,7 @@ services:
   # and no console page in web. Nothing publishes it: only the gateway (origin
   # network) reaches it, so the forwarded client address is believed.
   console:
-    image: {{ rel.console }}
+    image: {{ img.console }}
     environment:
       NODE_ENV: production
       # The console API: the API's internal console listener.
@@ -222,7 +223,7 @@ services:
 {% endif %}
   db-roles:{% if console_db_role %} &db-roles{% endif %}
 
-    image: {{ openctem_postgres_image }}
+    image: {{ openctem_postgres_ref }}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -260,7 +261,7 @@ services:
     logging: *logging
 
   migrate:
-    image: {{ rel.migrations }}
+    image: {{ img.migrations }}
     # The password comes from PGPASSWORD (env file), not the URL, so it is
     # in no command line.
     command:
@@ -291,7 +292,7 @@ services:
 {% endif %}
   # --- API ------------------------------------------------------------------------
   api:
-    image: {{ rel.api }}
+    image: {{ img.api }}
     environment:
       APP_NAME: openctem
       APP_ENV: production
@@ -416,7 +417,7 @@ services:
   # credentials, so no log driver keeps them. No ports, data network only.
   bootstrap-admin:
     profiles: [tools]
-    image: {{ rel.api }}
+    image: {{ img.api }}
     entrypoint: ["/app/bootstrap-admin"]
     environment:
       DB_HOST: postgres
@@ -439,7 +440,7 @@ services:
 {% if openctem_job_signer | bool %}
   # --- Job signer: no network, own key volume, socket shared with the API only --
   signer:
-    image: {{ rel.api }}
+    image: {{ img.api }}
     entrypoint: ["/app/openctem-signer"]
     command: ["serve"]
     user: "1001:1000"
@@ -473,7 +474,7 @@ services:
 {% endif %}
   # --- Datastores: internal network only, TLS between API and them ---------------
   datastore-tls:
-    image: {{ openctem_postgres_image }}
+    image: {{ openctem_postgres_ref }}
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
@@ -507,7 +508,7 @@ services:
     logging: *logging
 
   postgres:
-    image: {{ openctem_postgres_image }}
+    image: {{ openctem_postgres_ref }}
     command:
       - postgres
       - -c
@@ -578,7 +579,7 @@ services:
     logging: *logging
 
   redis:
-    image: {{ openctem_redis_image }}
+    image: {{ openctem_redis_ref }}
     # requirepass and TLS settings come from the config file (secret, 0400,
     # owned by the redis user), so the password is in no command line.
     command: ["redis-server", "/usr/local/etc/redis/redis.conf"]

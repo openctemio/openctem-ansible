@@ -48,6 +48,8 @@ jobs:
         run: ansible-playbook tests/render.yml -e render_dir="$RUNNER_TEMP/render"
       - name: Platform console as its own service (fixture release, site modes, validation)
         run: tests/console.sh "$RUNNER_TEMP/console"
+      - name: Private registry mirror (rendering, cosign against the mirror, validation)
+        run: tests/registry-mirror.sh "$RUNNER_TEMP/registry-mirror"
       - name: Administrators' audit sink (preflight, off/file/https rendering, backup)
         run: tests/audit-sink.sh "$RUNNER_TEMP/audit-sink"
       - name: Job signer, AI triage refusal, ledger mode, console origin (preflight, rendering)

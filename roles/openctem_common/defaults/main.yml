@@ -64,3 +64,38 @@ openctem_egress_allow_host_dns: true  # noqa: var-naming[no-role-prefix]
 # file in this host directory (created by roles/openctem, owned by the API's
 # uid, included in every backup by roles/backup).
 openctem_admin_audit_sink_dir: "{{ openctem_root }}/admin-audit"  # noqa: var-naming[no-role-prefix]
+
+# --- Private registry / air-gapped installs -----------------------------------------
+# Both mirror variables default to "" (pull from the public registries, nothing changes).
+# OpenCTEM images: replaces the ghcr.io/openctemio prefix, e.g.
+# registry.example.com/openctem gives registry.example.com/openctem/openctem-api@sha256:...
+# The digest is unchanged and the cosign signature check runs against the mirror
+# reference with the SAME certificate identity and issuer, so the mirror must hold the
+# signatures (copy them with the image as OCI referrers: cosign copy or oras cp -r).
+openctem_registry_mirror: ""  # noqa: var-naming[no-role-prefix]
+# Third-party images (Postgres, Redis, rclone, cloudflared, cosign): replaces the
+# registry host and keeps the path, so docker.io/library/postgres becomes
+# <mirror>/library/postgres and ghcr.io/sigstore/cosign/cosign becomes
+# <mirror>/sigstore/cosign/cosign. Digests are unchanged. Mirror them at those paths.
+openctem_third_party_registry_mirror: ""  # noqa: var-naming[no-role-prefix]
+# Registry login for the cosign check (cosign runs in a container and does not see the
+# host's docker login): a directory holding the host's config.json (for example
+# /root/.docker), mounted read-only. Empty: anonymous.
+openctem_registry_docker_config_dir: ""  # noqa: var-naming[no-role-prefix]
+# CA bundle (PEM, a file on the host) that signs the mirror's certificate, for the cosign
+# check. The Docker daemon trusts a CA through /etc/docker/certs.d/<host>/ca.crt instead.
+openctem_registry_ca_file: ""  # noqa: var-naming[no-role-prefix]
+
+# Pulled references (versions.yml pins, through the mirror when one is set).
+openctem_postgres_ref: >-  # noqa: var-naming[no-role-prefix]
+  {{ (openctem_third_party_registry_mirror | trim('/') ~ '/' ~ openctem_postgres_image.split('/', 1)[1])
+  if openctem_third_party_registry_mirror | length > 0 else openctem_postgres_image }}
+openctem_redis_ref: >-  # noqa: var-naming[no-role-prefix]
+  {{ (openctem_third_party_registry_mirror | trim('/') ~ '/' ~ openctem_redis_image.split('/', 1)[1])
+  if openctem_third_party_registry_mirror | length > 0 else openctem_redis_image }}
+openctem_rclone_ref: >-  # noqa: var-naming[no-role-prefix]
+  {{ (openctem_third_party_registry_mirror | trim('/') ~ '/' ~ openctem_rclone_image.split('/', 1)[1])
+  if openctem_third_party_registry_mirror | length > 0 else openctem_rclone_image }}
+openctem_cosign_ref: >-  # noqa: var-naming[no-role-prefix]
+  {{ (openctem_third_party_registry_mirror | trim('/') ~ '/' ~ openctem_cosign_image.split('/', 1)[1])
+  if openctem_third_party_registry_mirror | length > 0 else openctem_cosign_image }}

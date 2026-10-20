@@ -1,0 +1,17 @@
+---
+# tests/registry-mirror.sh runs this alone, with the role defaults and versions.yml.
+- name: Registry mirrors are plain registry paths
+  ansible.builtin.assert:
+    that:
+      - openctem_registry_mirror is string
+      - openctem_third_party_registry_mirror is string
+      - openctem_registry_mirror | length == 0 or openctem_registry_mirror is match('^[a-zA-Z0-9]([a-zA-Z0-9.:_/-]*[a-zA-Z0-9])?$')
+      - openctem_third_party_registry_mirror | length == 0 or openctem_third_party_registry_mirror is match('^[a-zA-Z0-9]([a-zA-Z0-9.:_/-]*[a-zA-Z0-9])?$')
+      - openctem_registry_mirror is not search('@|//')
+      - openctem_third_party_registry_mirror is not search('@|//')
+      - openctem_registry_ca_file | length == 0 or openctem_registry_ca_file is match('^/')
+      - openctem_registry_docker_config_dir | length == 0 or openctem_registry_docker_config_dir is match('^/')
+    fail_msg: >-
+      openctem_registry_mirror and openctem_third_party_registry_mirror are a registry host and
+      optional path without scheme or digest (registry.example.com/openctem);
+      openctem_registry_ca_file and openctem_registry_docker_config_dir are absolute paths on the host.

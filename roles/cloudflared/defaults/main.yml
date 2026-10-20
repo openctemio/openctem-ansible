@@ -16,3 +16,8 @@ cloudflared_mem: 256m
 #         role writes the ingress rules to {{ openctem_root }}/cloudflared.yml
 #         (app host -> http://gateway:80, everything else 404).
 cloudflared_management: remote
+
+# The pulled reference: versions.yml's pin, through openctem_third_party_registry_mirror when set.
+cloudflared_image_ref: >-
+  {{ (openctem_third_party_registry_mirror | trim('/') ~ '/' ~ cloudflared_image.split('/', 1)[1])
+  if openctem_third_party_registry_mirror | length > 0 else cloudflared_image }}

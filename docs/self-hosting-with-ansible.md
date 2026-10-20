@@ -197,5 +197,9 @@ audit sink".
   backups.
 - OpenCTEM images are verified with cosign against the release workflow
   before they run; every other image, package and collection is pinned.
+- Air-gapped sites can pull everything from their own registry
+  (`openctem_registry_mirror`, `openctem_third_party_registry_mirror`): digests and the
+  cosign identity stay the same, so the mirror must hold the signatures
+  (README, "Private registry / air-gapped").
 - Upgrades back up first and roll back automatically if the new release fails
   its checks.

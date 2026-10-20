@@ -11,6 +11,16 @@ openctem_cosign_identity: "https://github.com/openctemio/openctem/.github/workfl
 openctem_cosign_issuer: https://token.actions.githubusercontent.com
 openctem_verify_signatures: true
 
+# The release's OpenCTEM image references as pulled: versions.yml pins, with the
+# ghcr.io/openctemio prefix replaced by openctem_registry_mirror when it is set.
+# Compose and the signature check both use this one dict.
+openctem_image_keys: [api, web, gateway, migrations, console]
+openctem_images: >-
+  {{ dict(openctem_image_keys | select('in', openctem_releases[openctem_version])
+  | zip(openctem_image_keys | select('in', openctem_releases[openctem_version])
+  | map('extract', openctem_releases[openctem_version])
+  | map('replace', 'ghcr.io/openctemio/', (openctem_registry_mirror | trim('/') ~ '/') if openctem_registry_mirror | length > 0 else 'ghcr.io/openctemio/'))) }}
+
 # --- Networks ------------------------------------------------------------------------
 # tunnel  (internal) ingress <-> gateway only (openctem_net_tunnel, common)
 # origin  (internal) gateway <-> web, api (fixed addresses: the API trusts

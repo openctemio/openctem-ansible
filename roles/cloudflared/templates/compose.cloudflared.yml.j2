@@ -5,7 +5,7 @@
 # Dashboard route: https://{{ openctem_app_host }} -> http://gateway:80
 services:
   cloudflared:
-    image: {{ cloudflared_image }}
+    image: {{ cloudflared_image_ref }}
     user: "65532:65532"
     command:
       - tunnel

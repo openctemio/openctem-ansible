@@ -1,0 +1,14 @@
+---
+# Runs only the registry mirror checks of roles/openctem (tests/registry-mirror.sh).
+- name: Registry mirror checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/openctem/defaults/main.yml
+    - ../versions.yml
+    - vars.yml
+  tasks:
+    - name: Checks
+      ansible.builtin.import_tasks: ../roles/openctem/tasks/mirror_checks.yml

@@ -411,6 +411,46 @@ different party (or at least on a different host and account) is the real
 off-box copy: use it for a hosted service. Neither mode stores a secret in the
 inventory, the compose file or git.
 
+### Private registry / air-gapped
+
+By default the images come from `ghcr.io/openctemio` and the role pulls from the public
+registries. To run from your own registry (Harbor, Nexus, a GitLab registry), mirror the
+images and set, in `group_vars`:
+
+```yaml
+openctem_registry_mirror: registry.example.com/openctem          # replaces ghcr.io/openctemio
+openctem_third_party_registry_mirror: registry.example.com/mirror # replaces the host of the others
+# openctem_registry_docker_config_dir: /root/.docker   # the host's `docker login` for the cosign check
+# openctem_registry_ca_file: /etc/ssl/certs/registry-ca.pem
+```
+
+- **OpenCTEM images** (`openctem-api`, `openctem-web`, `openctem-gateway`, `migrations`,
+  `openctem-console`): the prefix is swapped, the repository name and the digest stay, so
+  `ghcr.io/openctemio/openctem-api@sha256:...` becomes
+  `registry.example.com/openctem/openctem-api@sha256:...`. The digest is the integrity
+  anchor: a mirror that serves other bytes fails the pull.
+- **Signatures.** The cosign check runs against the mirror reference with the same
+  certificate identity and issuer as before, so the mirror must hold our signatures. They
+  are OCI referrers of the digest: copy them with the image
+  (`cosign copy <src>@sha256:... <mirror>/<name>` or `oras cp -r`). If the signature is not
+  on the mirror the run stops before anything is pulled; there is no way to skip it except
+  `openctem_verify_signatures: false`, which you should not use.
+- **Third-party images** (PostgreSQL, Redis, rclone, cloudflared, cosign): the registry host
+  is replaced and the path kept, so `docker.io/library/postgres` is read from
+  `registry.example.com/mirror/library/postgres`, `docker.io/rclone/rclone` from
+  `.../rclone/rclone`, `docker.io/cloudflare/cloudflared` from `.../cloudflare/cloudflared`
+  and `ghcr.io/sigstore/cosign/cosign` from `.../sigstore/cosign/cosign`. Digests are
+  unchanged. These variables cannot be overridden one by one in `group_vars`
+  (`versions.yml` is loaded with higher precedence); use the mirror variable.
+- **Registry access.** The host runs `docker login <registry>` once (root's Docker config);
+  for the cosign check, which runs in a container, set `openctem_registry_docker_config_dir`
+  to the directory holding that `config.json` (mounted read-only). A private CA is trusted
+  by the Docker daemon through `/etc/docker/certs.d/<host>/ca.crt`, and by the cosign check
+  through `openctem_registry_ca_file` (mounted read-only). Plain-HTTP registries are not supported.
+- Nothing changes while both mirror variables are empty (the rendered files are identical).
+  Both are validated by the preflight (a host and optional path: no scheme, no digest).
+  `tests/registry-mirror.sh` renders both ways and checks the cosign command that would run.
+
 ### Automatic coverage
 
 OpenCTEM (v0.9.6 and later, with fixes in v0.9.7) keeps each organization's
@@ -774,7 +814,7 @@ requirements.yml         exact collection versions
 inventories/example/     example inventory; copy it outside the repository
 docs/                    Cloudflare, firewall, docs-site page
 scripts/vendor-release.sh   add an OpenCTEM release
-tests/                   render.yml, console.sh, audit-sink.sh, signer.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
+tests/                   render.yml, console.sh, audit-sink.sh, signer.sh, registry-mirror.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
 ```
 
 Tests never touch your workstation's containers: `tests/smoke.sh` and
