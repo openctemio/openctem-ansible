@@ -1,0 +1,14 @@
+---
+# Runs only the AI triage and job signer checks of roles/openctem (tests/signer.sh).
+- name: Signer checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/openctem/defaults/main.yml
+    - ../versions.yml
+    - vars.yml
+  tasks:
+    - name: Checks
+      ansible.builtin.import_tasks: ../roles/openctem/tasks/signer_checks.yml

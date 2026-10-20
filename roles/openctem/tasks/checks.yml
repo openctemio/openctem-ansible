@@ -18,6 +18,11 @@
     fail_msg: '{{ openctem_version }} is flagged console_service: versions.yml needs its console image (ghcr.io/openctemio/openctem-console@sha256:...).'
   when: openctem_releases[openctem_version].console_service | default(false) | bool
 
+# AI_TRIAGE_ENABLED, job signer and ledger settings (before the generic
+# openctem_api_env check so the messages are the specific ones).
+- name: The AI triage and job signer settings
+  ansible.builtin.import_tasks: signer_checks.yml
+
 - name: Extra API settings are plain names and not owned by this role
   ansible.builtin.assert:
     that:

@@ -1,0 +1,32 @@
+---
+# tests/signer.sh runs this alone, with the role defaults and versions.yml.
+# Since v0.12.0 the API refuses to start when AI_TRIAGE_ENABLED is set at all: a
+# provider key makes platform AI available and each organization turns AI
+# triage on in Settings > AI. Stop here, not after the images changed.
+- name: AI_TRIAGE_ENABLED is not set in the inventory
+  ansible.builtin.assert:
+    that:
+      - AI_TRIAGE_ENABLED is not defined
+      - openctem_ai_triage_enabled is not defined
+      - openctem_api_env is not mapping or 'AI_TRIAGE_ENABLED' not in openctem_api_env
+    fail_msg: >-
+      AI_TRIAGE_ENABLED is set in the inventory (group_vars/host_vars/-e, or in openctem_api_env). The API
+      refuses to start with it since v0.12.0. Remove it: a provider key makes platform AI available and each
+      organization turns AI triage on in Settings > AI.
+    quiet: true
+
+# The API runs with APP_ENV=production. Without the job signer it hands sensors
+# unsigned jobs, which the API refuses unless the operator says so explicitly.
+- name: Production runs with the job signer
+  ansible.builtin.assert:
+    that:
+      - openctem_job_signer | bool
+        or ((openctem_api_env.SIGNER_DANGEROUS_ALLOW_UNSIGNED_JOBS | default('false') | string | lower) in ['1', 't', 'true'])
+      - openctem_signer_ledger in ['audit', 'enforce', 'off']
+    fail_msg: >-
+      APP_ENV is production and openctem_job_signer is false: the API refuses to start without the job signer
+      (sensor jobs would be unsigned). Set openctem_job_signer: true (default), or accept unsigned jobs
+      explicitly with openctem_api_env: {SIGNER_DANGEROUS_ALLOW_UNSIGNED_JOBS: "true"} (not recommended).
+      openctem_signer_ledger must be audit, enforce or off.
+    quiet: true
+  when: openctem_api_env is mapping

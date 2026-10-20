@@ -62,6 +62,10 @@ ubuntu "openctem-secrets | sed 's/^/  /'
 	chown 999:999 $work/secrets/db_superuser_password"
 dc config --quiet
 
+say "job signer key (the role does this in tasks/signer.yml; the signer is on by default and stays unhealthy without a key)"
+dc create --no-recreate signer
+dc run --rm --no-deps -T signer keygen -out /var/lib/openctem-signer/keys/signer.pem | sed 's/^/  /'
+
 say "start (no cloudflared: the stack's ingress is tested from the tunnel network)"
 dc up -d --wait --wait-timeout 300
 
