@@ -334,6 +334,11 @@ services:
 {% if openctem_captcha_turnstile_site_key | length > 0 %}
       CAPTCHA_TURNSTILE_SITE_KEY: {{ openctem_captcha_turnstile_site_key | string | to_json }}
 {% endif %}
+{% if admin_site == 'host' %}
+      # The console's WebAuthn relying party: its own origin (security keys
+      # registered there stop working if this host name changes).
+      ADMIN_PUBLIC_URL: https://{{ openctem_admin_host }}
+{% endif %}
 {% if openctem_admin_audit_sink == 'file' %}
       ADMIN_AUDIT_SINK: file://{{ openctem_admin_audit_sink_container_dir }}/admin-audit.jsonl
 {% elif openctem_admin_audit_sink | length > 0 %}
@@ -443,6 +448,9 @@ services:
       SIGNER_KEY_FILE: /var/lib/openctem-signer/keys/signer.pem
       SIGNER_SOCKET: /run/openctem-signer/signer.sock
       SIGNER_STATE_DIR: /var/lib/openctem-signer/state
+{% if openctem_signer_ledger | length > 0 %}
+      SIGNER_LEDGER: {{ openctem_signer_ledger }}
+{% endif %}
     volumes:
       - signer-keys:/var/lib/openctem-signer/keys
       - signer-state:/var/lib/openctem-signer/state

@@ -22,9 +22,21 @@ openctem_net_data: 172.30.82
 # (openctem_net_egress_api: roles/openctem_common, the firewall role needs it too)
 
 # --- Job signer (signed sensor jobs, docs/architecture/job-signing.md) ------------
-# Off by default, like the upstream stack. When on, the API hands a sensor
-# only jobs the signer signed; the key is created once in its own volume.
-openctem_job_signer: false
+# On by default, like the upstream stack: the API hands a sensor only jobs the
+# signer signed (APP_ENV is always production here). The key is created once in
+# its own volume, never mounted into the API; back it up encrypted (README
+# "Job signer key"). Turning it off is refused by the preflight unless
+# openctem_api_env sets SIGNER_DANGEROUS_ALLOW_UNSIGNED_JOBS: "true", which the
+# API logs as a security warning and which sensors paired later refuse.
+openctem_job_signer: true
+# Scope ledger mode of the signer (SIGNER_LEDGER): audit, enforce or off.
+#   audit    records what enforce would refuse and signs anyway: use it when
+#            upgrading an installation that already signed jobs, until the
+#            ledger is bootstrapped (docs/architecture/job-signing.md, "Scope
+#            ledger").
+#   enforce  refuses jobs outside the scope people approved. Set it after the
+#            ledger import.
+openctem_signer_ledger: audit
 
 # --- Sizing: 4 vCPU / 7 GB host, ~1.5 GB left to the OS ------------------------------
 openctem_mem_postgres: 2g
@@ -87,11 +99,12 @@ openctem_api_env_reserved: [APP_ENV, APP_URL, SENSOR_PUBLIC_API_URL, SERVER_TRUS
                             REDIS_TLS_CA_FILE, AUTH_COOKIE_SECURE, AUTH_COOKIE_DOMAIN, SIGNER_SOCKET, CORS_ALLOWED_ORIGINS,
                             FINGERPRINT_KEY, SIGNUP_MODE, TENANT_CREATION_MODE, CAPTCHA_TURNSTILE_SITE_KEY,
                             ADMIN_LISTEN_ADDR, ADMIN_LISTEN_ALLOW_ALL_INTERFACES, ADMIN_ALLOWED_CIDRS,
-                            ADMIN_AUDIT_SINK, ADMIN_AUDIT_SINK_HEAD_INTERVAL, ADMIN_AUDIT_SINK_SYSLOG_CA_FILE,
+                            ADMIN_PUBLIC_URL, SIGNER_LEDGER, ADMIN_AUDIT_SINK, ADMIN_AUDIT_SINK_HEAD_INTERVAL, ADMIN_AUDIT_SINK_SYSLOG_CA_FILE,
                             ADMIN_AUDIT_SINK_SYSLOG_CLIENT_CERT, ADMIN_AUDIT_SINK_SYSLOG_CLIENT_KEY]
 
-# Names the API (v0.10.0) refuses to start with: never passed through openctem_api_env.
-openctem_api_env_removed: [TENANT_CREATION_MODE, AUTH_ALLOW_REGISTRATION, JIRA_WEBHOOK_SECRET,
+# Names the API refuses to start with (v0.10.0; AI_TRIAGE_ENABLED since v0.12.0):
+# never passed through openctem_api_env.
+openctem_api_env_removed: [AI_TRIAGE_ENABLED, TENANT_CREATION_MODE, AUTH_ALLOW_REGISTRATION, JIRA_WEBHOOK_SECRET,
                            SMTP_ENABLED, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASSWORD, SMTP_FROM, SMTP_FROM_NAME,
                            SMTP_TLS, SMTP_SKIP_VERIFY, SMTP_TIMEOUT]
 

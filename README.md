@@ -532,6 +532,40 @@ On a **new host**, deploy the backup's release first (`VERSION`), then add
 matches the data) except the new host's own Postgres superuser password. Rerun
 `playbooks/50-openctem.yml` afterwards to reset file owners.
 
+### Job signer key
+
+The job signer (`openctem_job_signer: true`, the default) signs every job the
+API hands a sensor. It runs as its own container (user 1001, no network), with
+its key and state in their own volumes (`signer-keys`, `signer-state`); the key
+volume is never mounted into the API, which reaches the signer only through a
+Unix socket on a shared volume. The first deploy creates the key and prints its
+id and public key; record them. The API refuses to start without the signer
+(`APP_ENV=production`); the preflight stops an inventory with
+`openctem_job_signer: false` unless `openctem_api_env` sets
+`SIGNER_DANGEROUS_ALLOW_UNSIGNED_JOBS: "true"` (not recommended).
+
+`openctem_signer_ledger` (default `audit`) is the signer's scope-ledger mode:
+`audit` records what `enforce` would refuse and still signs, which is the safe
+mode when upgrading an installation that already signed jobs. Bootstrap the
+ledger (`docs/architecture/job-signing.md`, "Scope ledger" in the OpenCTEM
+repository), then set `openctem_signer_ledger: enforce`.
+
+**Key backup.** Losing the key makes every paired sensor refuse new jobs; a
+leaked key lets its holder sign any job. So the key is backed up only
+encrypted:
+
+1. Create an age key pair on your own workstation (`age-keygen -o ctem.age`);
+   keep the identity file offline (password manager or hardware token), never
+   on this host.
+2. Put the public key (`age1...`) in `backup_age_recipient`, run
+   `playbooks/55-backup.yml`. `openctem-backup` then writes
+   `signer-keys.tar.gz.age` and `signer-state.tar.gz.age` with the other
+   files; copy them off the host together with the database backup (see the
+   off-host backup section). The plain `signer-keys.tar.gz` of an unencrypted
+   backup stays on this host and must not be copied anywhere.
+3. Test the restore on a scratch host at least once: `age -d -i ctem.age
+   signer-keys.tar.gz.age | tar -tz`.
+
 ## 6. Upgrade and rollback
 
 Releases this kit can run are listed in `versions.yml` (`openctem_releases`,
@@ -740,7 +774,7 @@ requirements.yml         exact collection versions
 inventories/example/     example inventory; copy it outside the repository
 docs/                    Cloudflare, firewall, docs-site page
 scripts/vendor-release.sh   add an OpenCTEM release
-tests/                   render.yml, console.sh, audit-sink.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
+tests/                   render.yml, console.sh, audit-sink.sh, signer.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
 ```
 
 Tests never touch your workstation's containers: `tests/smoke.sh` and

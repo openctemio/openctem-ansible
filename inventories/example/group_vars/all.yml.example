@@ -49,7 +49,8 @@ backup_wal_prune: false
 monitoring_webhook_url: "{{ vault_monitoring_webhook_url | default('') }}"
 
 # --- Optional ----------------------------------------------------------------------
-# openctem_job_signer: true      # signed sensor jobs (key created on the host)
+# openctem_job_signer: true      # signed sensor jobs (default; key created on the host)
+# openctem_signer_ledger: audit  # audit while upgrading, enforce after the ledger import
 # Sizing for 4 vCPU / 7-8 GB is the default; see roles/openctem/defaults/main.yml.
 
 # --- Stages to apply (or pass -e apply_x=true per run) ------------------------------

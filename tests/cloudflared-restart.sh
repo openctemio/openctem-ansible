@@ -60,4 +60,16 @@ grep -q -- '-p openctem' "$calls"
 # 4. Same settings again: no further recreate.
 play -e openctem_admin_site=host -e openctem_admin_host=admin.example.com -e @"$kit/tests/fixtures/console-release.yml"
 [ "$(recreates)" = 1 ] || { echo "recreated again without a change"; exit 1; }
+
+# 5. The ingress changes again but the stack's `up -d` already recreated the
+# connector in this run: no second recreate.
+play -e openctem_admin_site=host -e openctem_admin_host=admin2.example.com -e @"$kit/tests/fixtures/console-release.yml" \
+	-e '{"openctem_up": {"stderr": " Container openctem-cloudflared-1  Recreated\n Container openctem-gateway-1  Running"}}'
+grep -q 'hostname: admin2.example.com' "$root/cloudflared.yml"
+[ "$(recreates)" = 1 ] || { echo "recreated the connector twice in one run, got $(recreates)"; exit 1; }
+
+# 6. Same change shape, `up -d` left the connector running: recreated.
+play -e openctem_admin_site=host -e openctem_admin_host=admin3.example.com -e @"$kit/tests/fixtures/console-release.yml" \
+	-e '{"openctem_up": {"stderr": " Container openctem-cloudflared-1  Running"}}'
+[ "$(recreates)" = 2 ] || { echo "want a recreate when up -d left the connector running, got $(recreates)"; exit 1; }
 echo "cloudflared restart on ingress change: ok"

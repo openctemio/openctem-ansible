@@ -57,7 +57,7 @@ for n in ("port", "portbind", "host", "off"):
     assert api["environment"]["SERVER_TRUSTED_PROXIES"].endswith(".13"), n
     assert "OPENCTEM_ADMIN_PLANE" not in t, n
     # No service is pointed at an /admin path (the console is at the site's root).
-    assert not [v for sv in s.values() for v in (sv.get("environment") or {}).values() if "/admin" in str(v)], n
+    assert not [v for sv in s.values() for k, v in (sv.get("environment") or {}).items() if k != "ADMIN_PUBLIC_URL" and "/admin" in str(v)], n
     assert "SENSOR_MTLS" not in t, n
 
 c, _ = load("port")

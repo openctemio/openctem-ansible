@@ -3,6 +3,10 @@
 # connector as a single file, and the template module replaces it with a new
 # file (a new inode): the running connector keeps serving the old rules until
 # it is recreated, and `docker compose up -d` does not notice a content change.
+# The handler runs once at the end of the play, after the openctem role's
+# `up -d`: when that already recreated or started the connector (a new image
+# digest or compose fragment), it started with the new route file, so a second
+# recreate would only drop the tunnel again (openctem_up is that task's result).
 # Nothing to do when the connector is not running yet (first install): the
 # openctem role starts it with the new file.
 - name: Recreate cloudflared
@@ -16,4 +20,7 @@
       fi
     chdir: "{{ openctem_root }}"
   register: cloudflared_recreate
+  when: >-
+    openctem_up is not defined
+    or (openctem_up.stderr | default('')) is not search('cloudflared\\S*\\s+(Recreated|Started|Created)')
   changed_when: "'recreated' in cloudflared_recreate.stdout"

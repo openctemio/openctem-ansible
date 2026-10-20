@@ -50,6 +50,8 @@ jobs:
         run: tests/console.sh "$RUNNER_TEMP/console"
       - name: Administrators' audit sink (preflight, off/file/https rendering, backup)
         run: tests/audit-sink.sh "$RUNNER_TEMP/audit-sink"
+      - name: Job signer, AI triage refusal, ledger mode, console origin (preflight, rendering)
+        run: tests/signer.sh "$RUNNER_TEMP/signer"
       - name: Tunnel connector is recreated when its route file changes (stub docker)
         run: |
           sudo apt-get install -y -qq fakeroot > /dev/null

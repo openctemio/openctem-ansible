@@ -30,3 +30,13 @@
   ansible.builtin.debug:
     var: openctem_signer_keygen.stdout_lines
   when: openctem_signer_keygen is not skipped and openctem_signer_keygen.stdout_lines is defined
+
+# The key never leaves this host unencrypted: openctem-backup copies the
+# signer-keys volume only into a backup that is age-encrypted when
+# backup_age_recipient is set (README, "Job signer key").
+- name: The signer key is backed up encrypted
+  ansible.builtin.debug:
+    msg: >-
+      backup_age_recipient is empty: the signer key is only in the plain local backups of this host. Set it to
+      your offline age public key (README, "Job signer key") and keep the age identity off this host.
+  when: backup_age_recipient | default('') | length == 0
