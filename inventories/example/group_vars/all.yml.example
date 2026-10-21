@@ -11,7 +11,7 @@
 openctem_app_host: ctem.example.com
 
 # --- Release (must be a key of openctem_releases in versions.yml) ------------------
-openctem_version: v0.12.0
+openctem_version: v0.13.0
 
 # --- Private registry / air-gapped (optional; README "Private registry / air-gapped") ---
 # The mirror must hold the images AND their cosign signatures (cosign copy / oras cp -r).
