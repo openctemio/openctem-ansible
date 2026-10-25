@@ -28,6 +28,15 @@
       ansible.builtin.assert:
         that: preflight_uid.stdout == '0'
 
+    # Read-only. chrony may not be installed yet (os_baseline installs it), so
+    # a host without chronyc passes when timedatectl reports it synchronised.
+    - name: Clock is synchronised and close to true time
+      ansible.builtin.include_role:
+        name: os_baseline
+        tasks_from: clock_check.yml
+      vars:
+        os_baseline_clock_retries: 1
+
     - name: Report sizing (the stack is sized for 4 vCPU / 7 GB; see roles/openctem/defaults)
       ansible.builtin.debug:
         msg: >-

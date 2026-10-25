@@ -1,0 +1,14 @@
+---
+# Runs roles/os_baseline/tasks/clock_check.yml against localhost with stub
+# chronyc/timedatectl (see tests/clock-check.sh). Touches no real host.
+- name: Clock check with stub chronyc and timedatectl
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars:
+    os_baseline_clock_max_offset: 5
+    os_baseline_clock_retries: 1
+    os_baseline_clock_delay: 1
+  tasks:
+    - name: Run the shared clock check
+      ansible.builtin.include_tasks: ../roles/os_baseline/tasks/clock_check.yml

@@ -156,7 +156,10 @@ ansible-playbook -i $INV playbooks/00-preflight.yml -K
 ```
 
 Checks the OS, sudo, CPU/RAM/disk, the tunnel token's owner and mode (metadata
-only: the token is never read), Docker, listeners, ufw, time sync and the
+only: the token is never read), Docker, listeners, ufw, time sync (fails when
+the clock is unsynchronised or more than 5 s off, because sensor signatures
+allow only about 2 minutes of skew; fix with `sudo chronyc makestep`, see
+"Time synchronisation" in docs/self-hosting-with-ansible.md) and the
 effective sshd settings. Fix anything unexpected before going on.
 
 ### 3.2 Snapshot
@@ -184,7 +187,8 @@ ansible-playbook -i $INV playbooks/10-os.yml -K -e apply_os=true
 
 DevSec OS hardening (kernel/sysctl, file permissions, login defaults; IPv4
 forwarding kept on for Docker), unattended **security** upgrades (no automatic
-reboot unless `os_baseline_unattended_reboot: true`), chrony, auditd with
+reboot unless `os_baseline_unattended_reboot: true`), chrony (steps the clock whenever it is
+more than 1 s off), auditd with
 rules for identities, sudoers, SSH, Docker and `/opt/openctem/secrets`
 (reads included), and a persistent journal capped at 1 GB / 1 month. Each part
 can be turned off (`roles/os_baseline/defaults/main.yml`); tags `os_devsec`,

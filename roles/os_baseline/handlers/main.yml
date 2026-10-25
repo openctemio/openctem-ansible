@@ -4,6 +4,12 @@
     name: chrony
     state: restarted
 
+# Runs after the restart above (handlers run in file order).
+- name: Step the clock now
+  ansible.builtin.command: chronyc makestep
+  changed_when: true
+  failed_when: false
+
 - name: Restart journald
   ansible.builtin.systemd_service:
     name: systemd-journald
