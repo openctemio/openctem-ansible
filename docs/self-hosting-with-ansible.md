@@ -187,6 +187,26 @@ A release that requires the sink fails the play before any change when
 `MANAGED_SERVICE` is true and no sink is set. Details: the README, "Administrators'
 audit sink".
 
+## Time synchronisation
+
+Sensor request signatures allow about 2 minutes of clock skew. A host whose
+clock is further out (a real incident saw one run about 4 hours fast) refuses
+every sensor pairing. chrony's stock `makestep 1 3` only steps the clock in the
+first 3 updates after boot, so a large drift later on is slewed for hours.
+
+- `playbooks/10-os.yml` (role `os_baseline`) installs and enables chrony, makes
+  sure `/etc/chrony/chrony.conf` reads `/etc/chrony/conf.d`, and ships
+  `/etc/chrony/conf.d/openctem-makestep.conf` (`makestep 1 -1`: step whenever
+  the offset exceeds 1 s). Tune with `os_baseline_chrony_makestep_threshold`
+  and `os_baseline_chrony_makestep_limit`. At its end the role waits briefly
+  for sync and fails if the clock is not good.
+- `playbooks/00-preflight.yml` is read-only and fails when the clock is
+  unsynchronised or off by more than `os_baseline_clock_max_offset` seconds
+  (default 5). It uses `chronyc -n tracking`, or `timedatectl` on a host that
+  has no chrony yet.
+- To fix a failing host: run `sudo chronyc makestep`, check that the host can
+  reach NTP servers (UDP 123 egress), then rerun.
+
 ## Security model
 
 - The VM accepts no inbound connection except SSH from your administrator

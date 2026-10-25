@@ -58,6 +58,8 @@ jobs:
         run: |
           sudo apt-get install -y -qq fakeroot > /dev/null
           tests/cloudflared-restart.sh "$RUNNER_TEMP/cloudflared"
+      - name: Clock check (unsynchronised or far-off clock fails, with and without chronyc)
+        run: tests/clock-check.sh "$RUNNER_TEMP/clock-check"
       - name: Rendered settings (FINGERPRINT_KEY, SIGNUP_MODE, no TENANT_CREATION_MODE)
         run: |
           set -e

@@ -1,0 +1,55 @@
+---
+# Read-only clock check, shared by playbooks/00-preflight.yml and the end of
+# this role. Fails when the clock is unsynchronised or off by more than
+# os_baseline_clock_max_offset seconds. Sensor request signatures allow about
+# 2 minutes of skew, so a clock that is further out refuses every pairing.
+# Uses chronyc when it answers, else timedatectl (a fresh host that has not
+# got chrony yet is judged by the synchronisation flag alone).
+# Retries: os_baseline_clock_retries tries, os_baseline_clock_delay seconds apart.
+- name: Read the chrony tracking state
+  ansible.builtin.command: chronyc -n tracking
+  register: os_baseline_clock_chrony
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  retries: "{{ os_baseline_clock_retries }}"
+  delay: "{{ os_baseline_clock_delay }}"
+  until: >-
+    os_baseline_clock_chrony.rc | default(1) != 0
+    or (
+      (os_baseline_clock_chrony.stdout | default('')) is search('Leap status\s*:\s*Normal')
+      and ((os_baseline_clock_chrony.stdout | default('') | regex_findall('System time\s*:\s*([0-9.eE+-]+) seconds') | first | default('999999')) | float
+           <= os_baseline_clock_max_offset | float)
+    )
+
+- name: Read the systemd time state when chronyc does not answer
+  ansible.builtin.command: timedatectl show -p NTPSynchronized --value
+  register: os_baseline_clock_timedatectl
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: os_baseline_clock_chrony.rc | default(1) != 0
+
+- name: Assert the clock is synchronised and close to true time
+  vars:
+    os_baseline_clock_fix: >-
+      Fix: run `sudo chronyc makestep` on the host, then check that the host
+      can reach NTP servers (UDP 123 egress) and rerun. Sensor request
+      signatures allow about 2 minutes of skew; a clock further out refuses
+      every sensor pairing.
+    os_baseline_clock_offset: >-
+      {{ (os_baseline_clock_chrony.stdout | default('') | regex_findall('System time\s*:\s*([0-9.eE+-]+) seconds') | first | default('999999')) | float }}
+  ansible.builtin.assert:
+    that: >-
+      (os_baseline_clock_chrony.rc | default(1) == 0
+       and os_baseline_clock_chrony.stdout is search('Leap status\s*:\s*Normal')
+       and os_baseline_clock_offset | float <= os_baseline_clock_max_offset | float)
+      or (os_baseline_clock_chrony.rc | default(1) != 0
+          and (os_baseline_clock_timedatectl.stdout | default('') | trim) == 'yes')
+    fail_msg: >-
+      Host clock is not synchronised or is off by more than
+      {{ os_baseline_clock_max_offset }} s
+      ({{ ('chrony offset ' ~ os_baseline_clock_offset ~ ' s') if os_baseline_clock_chrony.rc | default(1) == 0
+          else 'chrony not answering, NTPSynchronized=' ~ (os_baseline_clock_timedatectl.stdout | default('unknown') | trim) }}).
+      {{ os_baseline_clock_fix }}
+    success_msg: Host clock is synchronised.
