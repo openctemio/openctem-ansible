@@ -370,6 +370,31 @@ Upgrading from a kit that set `openctem_tenant_creation_mode`: remove it.
 `admin_only` is `openctem_signup_mode: disabled` (the default); `self_service`
 is `open`. The play stops while the old variable is set.
 
+### Social login (Google, GitHub, Microsoft)
+
+The client ID and the switches are ordinary settings in `openctem_api_env`; the
+client secret stays on the server (never in the inventory) and the secrets
+script adds it to `api.env`. Example for Google (callback URL to register with
+Google: `https://<your host>/auth/callback/google`):
+
+```yaml
+openctem_api_env:
+  OAUTH_ENABLED: "true"
+  OAUTH_GOOGLE_ENABLED: "true"
+  OAUTH_GOOGLE_CLIENT_ID: "1234-abc.apps.googleusercontent.com"
+```
+
+```sh
+printf '%s' 'GOCSPX-...' | sudo install -m 0400 /dev/stdin /opt/openctem/secrets/oauth_google_client_secret
+```
+
+GitHub and Microsoft use `OAUTH_GITHUB_*` / `OAUTH_MICROSOFT_*` and the files
+`oauth_github_client_secret` / `oauth_microsoft_client_secret`. Then run
+`playbooks/50-openctem.yml -e apply_openctem=true` (the API restarts with the
+new `api.env`). A provider appears on the sign-in page only when it is enabled
+and both its client ID and secret are set. Removing the file and the settings
+turns it off at the next run.
+
 ### Administrators' audit sink
 
 The platform console keeps a hash-chained audit log of the platform
