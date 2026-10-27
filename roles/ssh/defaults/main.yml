@@ -12,12 +12,17 @@ ssh_devsec_vars:
   ssh_max_auth_retries: 3
   ssh_client_alive_interval: 300
   ssh_client_alive_count_max: 3
+  # Legal warning banner (CIS 5.2.16). devsec puts the directive in
+  # sshd_config; this role writes the file it points at.
+  ssh_banner: true
+  ssh_banner_path: /etc/issue.net
 # --- Additional hardening (CIS) ---
 # Restrict SSH to these users/groups. Empty list = no restriction.
 ssh_allow_users: []
 ssh_allow_groups: []
-# Legal warning banner (CIS 5.2.16)
-ssh_banner: true
+# The banner lives in ssh_devsec_vars: ssh_banner and ssh_banner_path are
+# devsec ssh_hardening's own names, and defining them here too would shadow
+# that role's values and make passing them to it a self-referencing loop.
 # fail2ban tuning
 ssh_fail2ban_maxretry: 3
 ssh_fail2ban_bantime: '1h'

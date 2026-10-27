@@ -51,6 +51,10 @@
     sshd_authenticationmethods: "{{ 'publickey password' if ssh_stage | int == 1 else 'publickey' }}"
     ssh_client_alive_interval: "{{ ssh_devsec_vars.ssh_client_alive_interval }}"
     ssh_client_alive_count_max: "{{ ssh_devsec_vars.ssh_client_alive_count_max }}"
+    # The banner belongs in the sshd_config devsec renders. Adding the
+    # directive afterwards only made the two take turns rewriting the file.
+    ssh_banner: "{{ ssh_devsec_vars.ssh_banner }}"
+    ssh_banner_path: "{{ ssh_devsec_vars.ssh_banner_path }}"
 
 - name: SSH allowed users
   ansible.builtin.lineinfile:
@@ -71,11 +75,11 @@
   when: ssh_allow_groups | length > 0
 
 - name: SSH warning banner
-  when: ssh_banner | bool
+  when: ssh_devsec_vars.ssh_banner | bool
   block:
     - name: Write the banner file
       ansible.builtin.copy:
-        dest: /etc/issue.net
+        dest: "{{ ssh_devsec_vars.ssh_banner_path }}"
         owner: root
         group: root
         mode: '0644'
@@ -85,14 +89,6 @@
           #  recorded. Unauthorized access is strictly prohibited and    #
           #  may result in disciplinary action and/or criminal charges.  #
           ###############################################################
-
-    - name: Enable the banner in sshd_config
-      ansible.builtin.lineinfile:
-        path: /etc/ssh/sshd_config
-        regexp: '^#?\s*Banner\b'
-        line: 'Banner /etc/issue.net'
-        validate: sshd -t -f %s
-      notify: Restart sshd
 
 - name: Apply the SSH handlers now
   ansible.builtin.meta: flush_handlers

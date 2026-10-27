@@ -17,6 +17,9 @@ os_baseline_devsec_vars:
   os_user_pw_ageing: true
   os_chmod_home_folders: true
   os_filesystem_whitelist: ['overlay', 'squashfs']
+  # faillock (CIS 5.3): devsec renders /etc/security/faillock.conf from these.
+  os_auth_retries: "{{ os_baseline_pam_faillock_deny }}"
+  os_auth_lockout_time: "{{ os_baseline_pam_faillock_unlock_time }}"
   # Docker bridge NAT needs forwarding; the role would turn it off.
   sysctl_overwrite:
     net.ipv4.ip_forward: 1
