@@ -90,12 +90,19 @@ fi
 # 3c. AIDE file integrity check (when installed).
 {% endraw %}
 {% if monitoring_aide_check | bool %}
+# --config is not optional: current Debian/Ubuntu aide builds have no default
+# config path, so the check would exit 17 without ever reporting a change.
+aide_conf={{ '/etc/aide/aide.conf' if ansible_os_family == 'Debian' else '/etc/aide.conf' }}
 {% raw %}
-if command -v aide > /dev/null 2>&1 && [ -f /var/lib/aide/aide.db ]; then
-	aide_out="$(aide --check 2>&1)" || {
-		changed="$(echo "$aide_out" | grep -cE '^(Added|Removed|Changed):' || true)"
-		[ "$changed" -gt 0 ] && alert "AIDE: file integrity changes detected ($changed entries; aide --check for details)"
-	}
+if command -v aide > /dev/null 2>&1 && [ -f /var/lib/aide/aide.db ] && [ -f "$aide_conf" ]; then
+	aide_rc=0
+	aide_out="$(aide --config="$aide_conf" --check 2>&1)" || aide_rc=$?
+	changed="$(echo "$aide_out" | grep -cE '^(Added|Removed|Changed):' || true)"
+	if [ "$changed" -gt 0 ]; then
+		alert "AIDE: file integrity changes detected ($changed entries; aide --config=$aide_conf --check for details)"
+	elif [ "$aide_rc" -ne 0 ]; then
+		alert "AIDE: check failed with status $aide_rc (aide --config=$aide_conf --check)"
+	fi
 fi
 {% endraw %}
 {% endif %}
