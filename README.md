@@ -42,7 +42,8 @@ flowchart LR
 8. [Security model and hardening checklist](#8-security-model-and-hardening-checklist)
 9. [Repository layout and tests](#9-repository-layout-and-tests)
 
-Detailed references: [Cloudflare Tunnel and Access](docs/CLOUDFLARE-ACCESS.md) ·
+Detailed references: [Installation scenarios](docs/INSTALL-SCENARIOS.md) ·
+[Cloudflare Tunnel and Access](docs/CLOUDFLARE-ACCESS.md) ·
 [Firewall](docs/FIREWALL.md) · [docs site page](docs/self-hosting-with-ansible.md).
 
 Step-by-step guides on the documentation site (they cover the same ground with more
