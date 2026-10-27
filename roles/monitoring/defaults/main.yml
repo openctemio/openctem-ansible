@@ -21,6 +21,11 @@ monitoring_basebackup_max_age_days: 8
 # --- Additional monitoring ---
 # AIDE file integrity check (runs after the main monitor)
 monitoring_aide_check: true
+# The check must pass --config: current Debian/Ubuntu aide builds have no
+# compiled-in default path and exit 17 without it. The fallback keeps this
+# resolvable where facts are not gathered, such as tests/render.yml.
+monitoring_aide_conf: >-
+  {{ '/etc/aide/aide.conf' if ansible_os_family | default('Debian') == 'Debian' else '/etc/aide.conf' }}
 # Second alerting channel (email). Empty = disabled.
 monitoring_email_to: ''
 monitoring_email_from: "openctem-monitor@{{ inventory_hostname }}"

@@ -1,8 +1,10 @@
 ---
-# OS-family shorthand used throughout this role.
+# OS-family shorthand used throughout this role. Tagged `always` so that
+# running a single tag (--tags os_aide) still resolves the package names.
 - name: Set OS-family package map
   ansible.builtin.set_fact:
     os_baseline_pkg: "{{ _os_baseline_packages[ansible_os_family] }}"
+  tags: [always]
 
 - name: DevSec OS hardening
   ansible.builtin.include_role:
@@ -398,31 +400,37 @@
         name: ["{{ os_baseline_pkg.aide }}"]
         state: present
 
+    - name: Set the AIDE configuration path
+      ansible.builtin.set_fact:
+        os_baseline_aide_conf: "{{ '/etc/aide/aide.conf' if ansible_os_family == 'Debian' else '/etc/aide.conf' }}"
+
     - name: AIDE configuration
       ansible.builtin.template:
         src: aide.conf.j2
-        dest: /etc/aide/aide.conf
+        dest: "{{ os_baseline_aide_conf }}"
         owner: root
         group: root
         mode: '0600'
-      when: ansible_os_family == 'Debian'
 
-    - name: AIDE configuration (RedHat)
-      ansible.builtin.template:
-        src: aide.conf.j2
-        dest: /etc/aide.conf
+    # database_out in the template writes here, and the package does not
+    # always create the directory.
+    - name: AIDE database directory
+      ansible.builtin.file:
+        path: /var/lib/aide
+        state: directory
         owner: root
         group: root
-        mode: '0600'
-      when: ansible_os_family == 'RedHat'
+        mode: '0700'
 
     - name: Check if AIDE database exists
       ansible.builtin.stat:
         path: /var/lib/aide/aide.db
       register: os_baseline_aide_db
 
+    # Current Debian/Ubuntu builds report "config file: <none>", so aide
+    # exits 17 without --config instead of falling back to a default path.
     - name: Initialize AIDE database (first run only)
-      ansible.builtin.command: aide --init
+      ansible.builtin.command: "aide --config={{ os_baseline_aide_conf }} --init"
       when: not os_baseline_aide_db.stat.exists
       changed_when: true
       async: 600
@@ -441,7 +449,7 @@
         day: "{{ os_baseline_aide_cron.split(' ')[2] }}"
         month: "{{ os_baseline_aide_cron.split(' ')[3] }}"
         weekday: "{{ os_baseline_aide_cron.split(' ')[4] }}"
-        job: '/usr/bin/aide --check 2>&1 | /usr/bin/logger -t aide-check -p auth.warning'
+        job: '/usr/bin/aide --config={{ os_baseline_aide_conf }} --check 2>&1 | /usr/bin/logger -t aide-check -p auth.warning'
         user: root
 
 # ---------------------------------------------------------------------------
