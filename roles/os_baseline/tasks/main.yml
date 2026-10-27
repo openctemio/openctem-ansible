@@ -103,14 +103,14 @@
     - name: Stat the chrony main configuration
       ansible.builtin.stat:
         path: "{{ os_baseline_chrony_conf }}"
-      register: os_baseline_chrony_conf
+      register: os_baseline_chrony_conf_stat
 
     - name: Make chrony read the drop-in directory
       ansible.builtin.lineinfile:
         path: "{{ os_baseline_chrony_conf }}"
         regexp: '^\s*confdir\s+'
         line: "confdir {{ os_baseline_chrony_confdir }}"
-      when: os_baseline_chrony_conf.stat.exists
+      when: os_baseline_chrony_conf_stat.stat.exists
       notify: Restart chrony
 
     - name: Chrony drop-in directory
