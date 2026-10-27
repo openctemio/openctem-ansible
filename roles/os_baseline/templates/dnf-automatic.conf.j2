@@ -1,0 +1,13 @@
+# {{ ansible_managed }}
+[commands]
+upgrade_type = security
+random_sleep = 0
+download_updates = yes
+apply_updates = yes
+
+[emitters]
+system_name = {{ inventory_hostname }}
+emit_via = stdio
+
+[email]
+email_from = root@{{ inventory_hostname }}

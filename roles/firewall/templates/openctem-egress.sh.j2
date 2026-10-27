@@ -26,6 +26,8 @@ SOURCES=({{ ([openctem_net_egress_api ~ '.0/24'] + ([cloudflared_net_egress ~ '.
 ALLOW=({% for a in openctem_egress_allow %}'{{ a.cidr }}|{{ a.proto | default('tcp') }}|{{ a.port | default('') }}' {% endfor %})
 DNS_FROM_HOST={{ 'yes' if openctem_egress_allow_host_dns | bool else 'no' }}
 BLOCK=(0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.168.0.0/16)
+LOG_DROPS='{{ 'yes' if firewall_egress_log_drops | default(true) | bool else 'no' }}'
+LOG_LIMIT='{{ firewall_egress_log_limit | default('5/min') }}'
 {% raw %}
 die() { echo "openctem-egress: $*" >&2; exit 1; }
 ipt() { iptables -w 10 "$@"; }
@@ -67,10 +69,18 @@ restore_text() {
 	echo ":$INP - [0:0]"
 	allow_rules "$FWD"
 	for src in "${SOURCES[@]}"; do
+		if [ "$LOG_DROPS" = yes ]; then
+			for b in "${BLOCK[@]}"; do echo "-A $FWD -s $src -d $b -j LOG --log-prefix \"OPENCTEM-EGRESS-DROP: \" --log-level 4 -m limit --limit $LOG_LIMIT"; done
+		fi
 		for b in "${BLOCK[@]}"; do echo "-A $FWD -s $src -d $b -j DROP"; done
 	done
 	allow_rules "$INP"
-	for src in "${SOURCES[@]}"; do echo "-A $INP -s $src -j DROP"; done
+	for src in "${SOURCES[@]}"; do
+		if [ "$LOG_DROPS" = yes ]; then
+			echo "-A $INP -s $src -j LOG --log-prefix \"OPENCTEM-EGRESS-IN-DROP: \" --log-level 4 -m limit --limit $LOG_LIMIT"
+		fi
+		echo "-A $INP -s $src -j DROP"
+	done
 	echo COMMIT
 }
 

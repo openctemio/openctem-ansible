@@ -5,6 +5,10 @@
 firewall_admin_cidrs: "{{ admin_cidrs | default([]) }}"
 firewall_ssh_port: 22
 
+# Log dropped egress packets (rate-limited to prevent log flooding).
+firewall_egress_log_drops: true
+firewall_egress_log_limit: '5/min'
+
 # Outbound policy of the stack's containers: openctem_egress_policy,
 # openctem_egress_allow, openctem_egress_allow_host_dns (roles/openctem_common),
 # applied as DOCKER-USER/INPUT rules by openctem-egress (docs/FIREWALL.md).

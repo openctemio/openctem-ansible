@@ -9,6 +9,15 @@
   ansible.builtin.set_fact:
     docker_daemon_current: "{{ (docker_daemon_existing.content | b64decode | from_json) if (docker_daemon_existing.content is defined) else {} }}"
 
+- name: Build additional daemon hardening settings
+  ansible.builtin.set_fact:
+    docker_extra_settings: >-
+      {{ {}
+         | combine({'storage-driver': docker_storage_driver} if docker_storage_driver | default('') | length > 0 else {})
+         | combine({'userns-remap': 'default'} if docker_userns_remap | default(false) | bool else {})
+         | combine({'icc': false} if not (docker_icc | default(true) | bool) else {})
+      }}
+
 - name: Refuse to replace a different log driver
   ansible.builtin.assert:
     that: docker_daemon_current.get('log-driver', 'json-file') == 'json-file'
@@ -24,7 +33,7 @@
 - name: Write daemon.json (with backup)
   ansible.builtin.copy:
     dest: /etc/docker/daemon.json
-    content: "{{ docker_daemon_current | combine(docker_daemon_settings, recursive=True) | to_nice_json }}\n"
+    content: "{{ docker_daemon_current | combine(docker_daemon_settings, recursive=True) | combine(docker_extra_settings | default({}), recursive=True) | to_nice_json }}\n"
     owner: root
     group: root
     mode: '0644'

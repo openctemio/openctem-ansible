@@ -13,9 +13,9 @@ os_baseline_journald_max_retention: 1month
 # Docker host needs. Turn off to keep only the components above.
 os_baseline_devsec_os: true
 os_baseline_devsec_vars:
-  os_pam_enabled: false
-  os_user_pw_ageing: false
-  os_chmod_home_folders: false
+  os_pam_enabled: true
+  os_user_pw_ageing: true
+  os_chmod_home_folders: true
   os_filesystem_whitelist: ['overlay', 'squashfs']
   # Docker bridge NAT needs forwarding; the role would turn it off.
   sysctl_overwrite:
@@ -29,3 +29,24 @@ os_baseline_chrony_makestep_limit: -1
 os_baseline_clock_max_offset: 5
 os_baseline_clock_retries: 12
 os_baseline_clock_delay: 5
+
+# --- Additional hardening (CIS Level 2) ---
+os_baseline_aide: true
+os_baseline_aide_cron: '05 4 * * *'
+os_baseline_pam_faillock: true
+os_baseline_pam_faillock_deny: 5
+os_baseline_pam_faillock_unlock_time: 900
+os_baseline_kernel_modules_blacklist: true
+os_baseline_mount_hardening: true
+os_baseline_core_dumps: true
+os_baseline_login_banner: true
+os_baseline_mac_enforcement: true
+# Log forwarding to a remote syslog/SIEM (empty = local only).
+os_baseline_remote_syslog: ''
+os_baseline_remote_syslog_port: 514
+os_baseline_remote_syslog_protocol: tcp
+
+# Package names per OS family.
+_os_baseline_packages:
+  Debian: { chrony: chrony, auditd: auditd, aide: aide, unattended: unattended-upgrades }
+  RedHat: { chrony: chrony, auditd: audit, aide: aide, unattended: dnf-automatic }

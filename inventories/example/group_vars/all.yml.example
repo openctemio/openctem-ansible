@@ -21,13 +21,12 @@ openctem_version: v0.15.1
 # openctem_registry_ca_file: /etc/ssl/certs/registry-ca.pem
 
 # --- Ingress -----------------------------------------------------------------------
-# cloudflared (default): Cloudflare Tunnel, no inbound port at all.
-# loopback: gateway on 127.0.0.1:openctem_loopback_port for your own TLS proxy.
-openctem_ingress: cloudflared
-# remote (default): the tunnel's route is set in the Cloudflare dashboard.
-# local: a locally managed tunnel (created with `cloudflared tunnel create`);
-# the role writes the route to /opt/openctem/cloudflared.yml.
-# cloudflared_management: remote
+# loopback (default): gateway on 127.0.0.1:openctem_loopback_port for your own TLS proxy.
+# cloudflared: Cloudflare Tunnel, no inbound port at all.
+openctem_ingress: loopback
+# When using cloudflared:
+# cloudflared_management: remote   # tunnel route set in the Cloudflare dashboard
+# cloudflared_management: local    # locally managed tunnel (cloudflared tunnel create)
 
 # --- Administrator network: SSH is allowed only from here ---------------------------
 admin_cidrs:
@@ -54,6 +53,24 @@ backup_wal_prune: false
 # A webhook URL is a credential: put it in group_vars/vault.yml (ansible-vault
 # encrypt) as vault_monitoring_webhook_url.
 monitoring_webhook_url: "{{ vault_monitoring_webhook_url | default('') }}"
+
+# --- Hardening (see roles/os_baseline/defaults for all options) --------------------
+# ssh_stage: 2                          # keys only (stage 1 keeps passwords)
+# ssh_allow_users: [deploy]             # restrict SSH to named users (CIS 5.2.4)
+# ssh_allow_groups: [sudo]
+# docker_userns_remap: true             # user namespace remapping (CIS Docker 2.8)
+# docker_icc: false                     # disable inter-container communication
+# os_baseline_remote_syslog: siem.example.com   # centralized log shipping
+# os_baseline_remote_syslog_port: 514
+# monitoring_deadman_url: https://hc.example.com/ping/xxxx  # dead-man's-switch
+# monitoring_email_to: soc@example.com  # second alerting channel
+
+# --- Rocky Linux 9 (uncomment when targeting Rocky/Alma/RHEL 9) -------------------
+# The Docker package versions below are for Rocky 9. Find the latest with:
+#   dnf list --showduplicates docker-ce
+# docker_rpm_ce_version: '29.9.0-1.el9'
+# docker_rpm_containerd_version: '2.4.2-1.el9'
+# docker_rpm_compose_plugin_version: '5.6.0-1.el9'
 
 # --- Optional ----------------------------------------------------------------------
 # openctem_job_signer: true      # signed sensor jobs (default; key created on the host)

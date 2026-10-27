@@ -1,4 +1,9 @@
 ---
+# OS-family shorthand used throughout this role.
+- name: Set OS-family package map
+  ansible.builtin.set_fact:
+    _pkg: "{{ _os_baseline_packages[ansible_os_family] }}"
+
 - name: DevSec OS hardening
   ansible.builtin.include_role:
     name: devsec.hardening.os_hardening
@@ -12,9 +17,12 @@
   when: os_baseline_devsec_os | bool
   tags: [os_devsec]
 
-- name: Unattended security upgrades
+# ---------------------------------------------------------------------------
+# Unattended security upgrades
+# ---------------------------------------------------------------------------
+- name: Unattended security upgrades (Debian)
   tags: [os_updates]
-  when: os_baseline_unattended_upgrades | bool
+  when: os_baseline_unattended_upgrades | bool and ansible_os_family == 'Debian'
   block:
     - name: Install unattended-upgrades
       ansible.builtin.apt:
@@ -35,8 +43,6 @@
           APT::Periodic::Unattended-Upgrade "1";
           APT::Periodic::AutocleanInterval "7";
 
-    # Security pocket only. Docker packages come from Docker's repository and
-    # are held (playbooks/30-docker-install.yml), so they are never upgraded here.
     - name: Restrict unattended upgrades to security updates
       ansible.builtin.copy:
         dest: /etc/apt/apt.conf.d/52openctem-unattended
@@ -54,33 +60,62 @@
           Unattended-Upgrade::Automatic-Reboot-Time "{{ os_baseline_unattended_reboot_time }}";
           Unattended-Upgrade::Remove-Unused-Dependencies "true";
 
+- name: Unattended security upgrades (RedHat)
+  tags: [os_updates]
+  when: os_baseline_unattended_upgrades | bool and ansible_os_family == 'RedHat'
+  block:
+    - name: Install dnf-automatic
+      ansible.builtin.dnf:
+        name: [dnf-automatic]
+        state: present
+
+    - name: Configure dnf-automatic for security-only updates
+      ansible.builtin.template:
+        src: dnf-automatic.conf.j2
+        dest: /etc/dnf/automatic.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Enable dnf-automatic timer
+      ansible.builtin.systemd_service:
+        name: dnf-automatic-install.timer
+        enabled: true
+        state: started
+
+# ---------------------------------------------------------------------------
+# Time sync with chrony
+# ---------------------------------------------------------------------------
 - name: Time sync with chrony
   tags: [os_time]
   when: os_baseline_chrony | bool
   block:
     - name: Install chrony
-      ansible.builtin.apt:
-        name: [chrony]
+      ansible.builtin.package:
+        name: ["{{ _pkg.chrony }}"]
         state: present
+
+    - name: Set chrony config paths
+      ansible.builtin.set_fact:
+        _chrony_conf: "{{ '/etc/chrony/chrony.conf' if ansible_os_family == 'Debian' else '/etc/chrony.conf' }}"
+        _chrony_confdir: "{{ '/etc/chrony/conf.d' if ansible_os_family == 'Debian' else '/etc/chrony.d' }}"
 
     - name: Stat the chrony main configuration
       ansible.builtin.stat:
-        path: /etc/chrony/chrony.conf
+        path: "{{ _chrony_conf }}"
       register: os_baseline_chrony_conf
 
-    # Ubuntu's chrony.conf already has this line; kept so the drop-in below
-    # is always read.
-    - name: Make chrony read /etc/chrony/conf.d
+    - name: Make chrony read the drop-in directory
       ansible.builtin.lineinfile:
-        path: /etc/chrony/chrony.conf
-        regexp: '^\s*confdir\s+/etc/chrony/conf\.d\s*$'
-        line: confdir /etc/chrony/conf.d
+        path: "{{ _chrony_conf }}"
+        regexp: '^\s*confdir\s+'
+        line: "confdir {{ _chrony_confdir }}"
       when: os_baseline_chrony_conf.stat.exists
       notify: Restart chrony
 
     - name: Chrony drop-in directory
       ansible.builtin.file:
-        path: /etc/chrony/conf.d
+        path: "{{ _chrony_confdir }}"
         state: directory
         owner: root
         group: root
@@ -88,21 +123,18 @@
 
     - name: Step the clock whenever it is far off, not only just after boot
       ansible.builtin.copy:
-        dest: /etc/chrony/conf.d/openctem-makestep.conf
+        dest: "{{ _chrony_confdir }}/openctem-makestep.conf"
         owner: root
         group: root
         mode: '0644'
         content: |
           # Managed by Ansible (roles/os_baseline).
-          # The stock `makestep 1 3` steps the clock only in the first 3
-          # updates after boot; a later large drift would be slewed for hours,
-          # and sensor request signatures allow about 2 minutes of skew.
           makestep {{ os_baseline_chrony_makestep_threshold }} {{ os_baseline_chrony_makestep_limit }}
       notify: [Restart chrony, Step the clock now]
 
     - name: Enable chrony
       ansible.builtin.systemd_service:
-        name: chrony
+        name: "{{ 'chrony' if ansible_os_family == 'Debian' else 'chronyd' }}"
         enabled: true
         state: started
 
@@ -112,13 +144,16 @@
     - name: Verify the clock is synchronised (waits briefly for the first sync)
       ansible.builtin.include_tasks: clock_check.yml
 
+# ---------------------------------------------------------------------------
+# Audit daemon
+# ---------------------------------------------------------------------------
 - name: Audit daemon
   tags: [os_audit]
   when: os_baseline_auditd | bool
   block:
     - name: Install auditd
-      ansible.builtin.apt:
-        name: [auditd]
+      ansible.builtin.package:
+        name: ["{{ _pkg.auditd }}"]
         state: present
 
     - name: Audit rules
@@ -136,6 +171,9 @@
         enabled: true
         state: started
 
+# ---------------------------------------------------------------------------
+# Persistent, size-capped journal
+# ---------------------------------------------------------------------------
 - name: Persistent, size-capped journal
   tags: [os_journal]
   when: os_baseline_journald | bool
@@ -163,3 +201,284 @@
           MaxRetentionSec={{ os_baseline_journald_max_retention }}
           ForwardToSyslog=no
       notify: Restart journald
+
+# ---------------------------------------------------------------------------
+# Kernel module blacklist (CIS 1.1.1, 3.5)
+# ---------------------------------------------------------------------------
+- name: Kernel module blacklist
+  tags: [os_modules]
+  when: os_baseline_kernel_modules_blacklist | bool
+  block:
+    - name: Blacklist uncommon filesystems and protocols
+      ansible.builtin.template:
+        src: modprobe-blacklist.conf.j2
+        dest: /etc/modprobe.d/openctem-blacklist.conf
+        owner: root
+        group: root
+        mode: '0644'
+
+# ---------------------------------------------------------------------------
+# Filesystem mount hardening (CIS 1.1)
+# ---------------------------------------------------------------------------
+- name: Filesystem mount hardening
+  tags: [os_mounts]
+  when: os_baseline_mount_hardening | bool
+  block:
+    - name: Harden /tmp (noexec,nosuid,nodev)
+      ansible.posix.mount:
+        path: /tmp
+        src: tmpfs
+        fstype: tmpfs
+        opts: defaults,noexec,nosuid,nodev,size=2G
+        state: mounted
+
+    - name: Harden /dev/shm (noexec,nosuid,nodev)
+      ansible.posix.mount:
+        path: /dev/shm
+        src: tmpfs
+        fstype: tmpfs
+        opts: defaults,noexec,nosuid,nodev
+        state: mounted
+
+    - name: Harden /var/tmp bind mount (noexec,nosuid,nodev)
+      ansible.posix.mount:
+        path: /var/tmp
+        src: /tmp
+        fstype: none
+        opts: bind,noexec,nosuid,nodev
+        state: mounted
+
+# ---------------------------------------------------------------------------
+# Core dump restriction (CIS 1.5.1)
+# ---------------------------------------------------------------------------
+- name: Core dump restriction
+  tags: [os_coredump]
+  when: os_baseline_core_dumps | bool
+  block:
+    - name: Disable core dumps via limits.conf
+      ansible.builtin.copy:
+        dest: /etc/security/limits.d/openctem-coredump.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (roles/os_baseline). CIS 1.5.1.
+          * hard core 0
+
+    - name: Disable SUID core dumps via sysctl
+      ansible.posix.sysctl:
+        name: fs.suid_dumpable
+        value: '0'
+        sysctl_set: true
+        state: present
+        reload: true
+
+    - name: Disable core dump backtraces via systemd-coredump
+      ansible.builtin.copy:
+        dest: /etc/systemd/coredump.conf.d/openctem.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (roles/os_baseline).
+          [Coredump]
+          Storage=none
+          ProcessSizeMax=0
+      register: _coredump_conf
+
+    - name: Ensure coredump.conf.d directory exists
+      ansible.builtin.file:
+        path: /etc/systemd/coredump.conf.d
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+# ---------------------------------------------------------------------------
+# Login banner (CIS 1.7)
+# ---------------------------------------------------------------------------
+- name: Login banner
+  tags: [os_banner]
+  when: os_baseline_login_banner | bool
+  block:
+    - name: Deploy /etc/issue.net (SSH banner)
+      ansible.builtin.template:
+        src: login-banner.j2
+        dest: /etc/issue.net
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Deploy /etc/issue (console banner)
+      ansible.builtin.template:
+        src: login-banner.j2
+        dest: /etc/issue
+        owner: root
+        group: root
+        mode: '0644'
+
+# ---------------------------------------------------------------------------
+# PAM faillock (CIS 5.3)
+# ---------------------------------------------------------------------------
+- name: PAM faillock
+  tags: [os_pam]
+  when: os_baseline_pam_faillock | bool
+  block:
+    - name: Configure faillock (Debian)
+      ansible.builtin.copy:
+        dest: /etc/security/faillock.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (roles/os_baseline). CIS 5.3.
+          deny = {{ os_baseline_pam_faillock_deny }}
+          unlock_time = {{ os_baseline_pam_faillock_unlock_time }}
+          fail_interval = 900
+          even_deny_root
+          root_unlock_time = {{ os_baseline_pam_faillock_unlock_time }}
+      when: ansible_os_family == 'Debian'
+
+    - name: Configure faillock (RedHat)
+      ansible.builtin.copy:
+        dest: /etc/security/faillock.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (roles/os_baseline). CIS 5.3.
+          deny = {{ os_baseline_pam_faillock_deny }}
+          unlock_time = {{ os_baseline_pam_faillock_unlock_time }}
+          fail_interval = 900
+          even_deny_root
+          root_unlock_time = {{ os_baseline_pam_faillock_unlock_time }}
+          audit
+          local_users_only
+      when: ansible_os_family == 'RedHat'
+
+# ---------------------------------------------------------------------------
+# Mandatory access control enforcement (CIS 1.6)
+# ---------------------------------------------------------------------------
+- name: Mandatory access control enforcement
+  tags: [os_mac]
+  when: os_baseline_mac_enforcement | bool
+  block:
+    - name: Assert AppArmor is enforcing (Debian)
+      ansible.builtin.command: aa-status --enabled
+      changed_when: false
+      check_mode: false
+      register: _aa_status
+      failed_when: _aa_status.rc != 0
+      when: ansible_os_family == 'Debian'
+
+    - name: Assert SELinux is enforcing (RedHat)
+      ansible.builtin.command: getenforce
+      changed_when: false
+      check_mode: false
+      register: _selinux_status
+      when: ansible_os_family == 'RedHat'
+
+    - name: SELinux must be Enforcing
+      ansible.builtin.assert:
+        that: _selinux_status.stdout | trim == 'Enforcing'
+        fail_msg: >-
+          SELinux is {{ _selinux_status.stdout | trim }}, not Enforcing.
+          Set SELINUX=enforcing in /etc/selinux/config and reboot.
+      when: ansible_os_family == 'RedHat'
+
+# ---------------------------------------------------------------------------
+# AIDE file integrity monitoring (CIS 1.3)
+# ---------------------------------------------------------------------------
+- name: AIDE file integrity monitoring
+  tags: [os_aide]
+  when: os_baseline_aide | bool
+  block:
+    - name: Install AIDE
+      ansible.builtin.package:
+        name: ["{{ _pkg.aide }}"]
+        state: present
+
+    - name: AIDE configuration
+      ansible.builtin.template:
+        src: aide.conf.j2
+        dest: /etc/aide/aide.conf
+        owner: root
+        group: root
+        mode: '0600'
+      when: ansible_os_family == 'Debian'
+
+    - name: AIDE configuration (RedHat)
+      ansible.builtin.template:
+        src: aide.conf.j2
+        dest: /etc/aide.conf
+        owner: root
+        group: root
+        mode: '0600'
+      when: ansible_os_family == 'RedHat'
+
+    - name: Check if AIDE database exists
+      ansible.builtin.stat:
+        path: /var/lib/aide/aide.db
+      register: _aide_db
+
+    - name: Initialize AIDE database (first run only)
+      ansible.builtin.command: aide --init
+      when: not _aide_db.stat.exists
+      changed_when: true
+      async: 600
+      poll: 30
+
+    - name: Activate AIDE database (first run only)
+      ansible.builtin.command: mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
+      when: not _aide_db.stat.exists
+      changed_when: true
+
+    - name: AIDE daily check via cron
+      ansible.builtin.cron:
+        name: aide-check
+        minute: "{{ os_baseline_aide_cron.split(' ')[0] }}"
+        hour: "{{ os_baseline_aide_cron.split(' ')[1] }}"
+        day: "{{ os_baseline_aide_cron.split(' ')[2] }}"
+        month: "{{ os_baseline_aide_cron.split(' ')[3] }}"
+        weekday: "{{ os_baseline_aide_cron.split(' ')[4] }}"
+        job: '/usr/bin/aide --check 2>&1 | /usr/bin/logger -t aide-check -p auth.warning'
+        user: root
+
+# ---------------------------------------------------------------------------
+# Remote syslog forwarding (NIST 800-123)
+# ---------------------------------------------------------------------------
+- name: Remote syslog forwarding
+  tags: [os_syslog]
+  when: os_baseline_remote_syslog | length > 0
+  block:
+    - name: Install rsyslog
+      ansible.builtin.package:
+        name: [rsyslog]
+        state: present
+
+    - name: Remote syslog forwarding configuration
+      ansible.builtin.template:
+        src: rsyslog-remote.conf.j2
+        dest: /etc/rsyslog.d/60-openctem-remote.conf
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart rsyslog
+
+    - name: Forward journald to syslog for remote shipping
+      ansible.builtin.copy:
+        dest: /etc/systemd/journald.conf.d/61-openctem-syslog.conf
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (roles/os_baseline). Forward to rsyslog for remote shipping.
+          [Journal]
+          ForwardToSyslog=yes
+      notify: Restart journald
+
+    - name: Enable rsyslog
+      ansible.builtin.systemd_service:
+        name: rsyslog
+        enabled: true
+        state: started

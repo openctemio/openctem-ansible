@@ -1,0 +1,18 @@
+# {{ ansible_managed }}
+database_in=file:/var/lib/aide/aide.db
+database_out=file:/var/lib/aide/aide.db.new
+database_new=file:/var/lib/aide/aide.db.new
+
+# What to monitor
+NORMAL = p+i+n+u+g+s+b+m+c+sha256
+DIR = p+i+n+u+g
+
+/etc NORMAL
+/usr/bin NORMAL
+/usr/sbin NORMAL
+/usr/local/bin NORMAL
+/usr/local/sbin NORMAL
+/opt/openctem NORMAL
+!/opt/openctem/state
+!/opt/openctem/secrets
+/boot NORMAL

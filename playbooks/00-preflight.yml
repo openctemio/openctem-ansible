@@ -12,10 +12,19 @@
   tasks:
     - name: Assert intended OS
       ansible.builtin.assert:
-        that:
-          - ansible_facts.distribution == 'Ubuntu'
-          - ansible_facts.distribution_version is version(openctem_min_ubuntu | default('24.04'), '>=')
-        fail_msg: 'Unsupported OS {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}: stop and review the inventory.'
+        that: >-
+          (ansible_facts.distribution == 'Ubuntu' and
+           ansible_facts.distribution_version is version(openctem_min_ubuntu | default('24.04'), '>='))
+          or
+          (ansible_facts.distribution in ['Rocky', 'AlmaLinux', 'RedHat'] and
+           ansible_facts.distribution_major_version is version('9', '>='))
+        fail_msg: >-
+          Unsupported OS {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.
+          Supported: Ubuntu >= 24.04 or Rocky/Alma/RHEL >= 9.
+
+    - name: Determine OS family
+      ansible.builtin.set_fact:
+        openctem_os_family: "{{ ansible_facts.os_family }}"
 
     - name: Check sudo works
       ansible.builtin.command: id -u
@@ -61,6 +70,7 @@
       become: true
       register: preflight_token
       no_log: true
+      when: openctem_ingress | default('cloudflared') == 'cloudflared'
 
     - name: Stat the secrets directory
       ansible.builtin.stat:
@@ -79,6 +89,7 @@
           token: {{ 'present mode=' ~ preflight_token.stat.mode ~ ' uid=' ~ preflight_token.stat.uid
           ~ ' gid=' ~ preflight_token.stat.gid ~ ' size>0=' ~ (preflight_token.stat.size > 0)
           if preflight_token.stat.exists else 'absent (the owner places it before playbooks/50-openctem.yml)' }}
+      when: openctem_ingress | default('cloudflared') == 'cloudflared'
 
     - name: Assert token owner and mode when the token is present
       ansible.builtin.assert:
@@ -91,7 +102,7 @@
           - preflight_secrets_dir.stat.mode == '0700'
         fail_msg: 'Tunnel token must be a non-empty regular file, owner uid 65532, mode 0400, in a 0700 root directory.'
         quiet: true
-      when: preflight_token.stat.exists
+      when: openctem_ingress | default('cloudflared') == 'cloudflared' and preflight_token.stat.exists
 
     - name: Collect Docker version (absent before playbooks/30-docker-install.yml)
       ansible.builtin.command: docker version --format '{{ "{{.Server.Version}}" }}'
@@ -107,7 +118,8 @@
         echo '[SOCKETS]'; ss -lntup || true
         echo '[DOCKER]'; docker ps --format '{{ "{{.Names}}" }} {{ "{{.Ports}}" }}' 2>/dev/null || echo 'docker not installed'
         echo '[FORWARD]'; sysctl net.ipv4.ip_forward || true
-        echo '[UFW]'; ufw status verbose || true
+        echo '[UFW]'; ufw status verbose 2>/dev/null || true
+            echo '[FIREWALLD]'; firewall-cmd --list-all 2>/dev/null || true
         echo '[TIME]'; timedatectl show -p NTPSynchronized -p Timezone || true
         echo '[SSHD]'; sshd -T 2>/dev/null | grep -Ei '^(port|passwordauthentication|pubkeyauthentication|permitrootlogin|authenticationmethods) ' || true
       args:

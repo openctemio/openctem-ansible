@@ -10,3 +10,15 @@ ssh_devsec_vars:
   ssh_allow_tcp_forwarding: 'no'
   ssh_x11_forwarding: false
   ssh_max_auth_retries: 3
+  ssh_client_alive_interval: 300
+  ssh_client_alive_count_max: 3
+# --- Additional hardening (CIS) ---
+# Restrict SSH to these users/groups. Empty list = no restriction.
+ssh_allow_users: []
+ssh_allow_groups: []
+# Legal warning banner (CIS 5.2.16)
+ssh_banner: true
+# fail2ban tuning
+ssh_fail2ban_maxretry: 3
+ssh_fail2ban_bantime: '1h'
+ssh_fail2ban_findtime: '10m'
