@@ -23,6 +23,16 @@
 #                          (openctem_admin_site). Set by scripts/vendor-release.sh; v0.10.1 is the
 #                          first release with published images that has it (v0.10.0 was never published).
 openctem_releases:
+  v0.15.5:
+    admin_plane: true
+    console_db_role: true
+    console_service: true
+    admin_audit_sink_required: true
+    api: ghcr.io/openctemio/openctem-api@sha256:3292f7b856ee532ecd30be7eab59039e8ceeab221cd7ff4cac945dee4b069ac3
+    web: ghcr.io/openctemio/openctem-web@sha256:3e531137dac8adb448b23d5dad979508350c90a8aef444d9652fc1290e1e215c
+    gateway: ghcr.io/openctemio/openctem-gateway@sha256:957444f6aafd4ca7016d5859fcb540e4eec3eaa9f0ae769321c6da4f13daf49d
+    migrations: ghcr.io/openctemio/migrations@sha256:976468eedd949c786586a6b7e417ebcc620c19630d1f7ddb6a53cba8ff55e853
+    console: ghcr.io/openctemio/openctem-console@sha256:cd1dc87faf69e69c55811aba5f222fb5b18c91b3222ed9b945b640678140ad24
   v0.15.4:
     admin_plane: true
     console_db_role: true
