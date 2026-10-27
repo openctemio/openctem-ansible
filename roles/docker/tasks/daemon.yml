@@ -33,7 +33,11 @@
 - name: Write daemon.json (with backup)
   ansible.builtin.copy:
     dest: /etc/docker/daemon.json
-    content: "{{ docker_daemon_current | combine(docker_daemon_settings, recursive=True) | combine(docker_extra_settings | default({}), recursive=True) | to_nice_json }}\n"
+    content: |
+      {{ docker_daemon_current
+         | combine(docker_daemon_settings, recursive=True)
+         | combine(docker_extra_settings | default({}), recursive=True)
+         | to_nice_json }}
     owner: root
     group: root
     mode: '0644'

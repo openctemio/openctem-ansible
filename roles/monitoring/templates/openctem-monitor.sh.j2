@@ -88,14 +88,18 @@ if [ -f /etc/systemd/system/openctem-egress.service ]; then
 fi
 
 # 3c. AIDE file integrity check (when installed).
+{% endraw %}
 {% if monitoring_aide_check | bool %}
+{% raw %}
 if command -v aide > /dev/null 2>&1 && [ -f /var/lib/aide/aide.db ]; then
 	aide_out="$(aide --check 2>&1)" || {
 		changed="$(echo "$aide_out" | grep -cE '^(Added|Removed|Changed):' || true)"
 		[ "$changed" -gt 0 ] && alert "AIDE: file integrity changes detected ($changed entries; aide --check for details)"
 	}
 fi
+{% endraw %}
 {% endif %}
+{% raw %}
 
 # 4. From outside, through Cloudflare.
 # challenged <path>: Access must stop an anonymous request (302 to the team

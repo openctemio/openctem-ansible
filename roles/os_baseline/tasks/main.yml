@@ -2,7 +2,7 @@
 # OS-family shorthand used throughout this role.
 - name: Set OS-family package map
   ansible.builtin.set_fact:
-    _pkg: "{{ _os_baseline_packages[ansible_os_family] }}"
+    os_baseline_pkg: "{{ _os_baseline_packages[ansible_os_family] }}"
 
 - name: DevSec OS hardening
   ansible.builtin.include_role:
@@ -92,30 +92,30 @@
   block:
     - name: Install chrony
       ansible.builtin.package:
-        name: ["{{ _pkg.chrony }}"]
+        name: ["{{ os_baseline_pkg.chrony }}"]
         state: present
 
     - name: Set chrony config paths
       ansible.builtin.set_fact:
-        _chrony_conf: "{{ '/etc/chrony/chrony.conf' if ansible_os_family == 'Debian' else '/etc/chrony.conf' }}"
-        _chrony_confdir: "{{ '/etc/chrony/conf.d' if ansible_os_family == 'Debian' else '/etc/chrony.d' }}"
+        os_baseline_chrony_conf: "{{ '/etc/chrony/chrony.conf' if ansible_os_family == 'Debian' else '/etc/chrony.conf' }}"
+        os_baseline_chrony_confdir: "{{ '/etc/chrony/conf.d' if ansible_os_family == 'Debian' else '/etc/chrony.d' }}"
 
     - name: Stat the chrony main configuration
       ansible.builtin.stat:
-        path: "{{ _chrony_conf }}"
+        path: "{{ os_baseline_chrony_conf }}"
       register: os_baseline_chrony_conf
 
     - name: Make chrony read the drop-in directory
       ansible.builtin.lineinfile:
-        path: "{{ _chrony_conf }}"
+        path: "{{ os_baseline_chrony_conf }}"
         regexp: '^\s*confdir\s+'
-        line: "confdir {{ _chrony_confdir }}"
+        line: "confdir {{ os_baseline_chrony_confdir }}"
       when: os_baseline_chrony_conf.stat.exists
       notify: Restart chrony
 
     - name: Chrony drop-in directory
       ansible.builtin.file:
-        path: "{{ _chrony_confdir }}"
+        path: "{{ os_baseline_chrony_confdir }}"
         state: directory
         owner: root
         group: root
@@ -123,7 +123,7 @@
 
     - name: Step the clock whenever it is far off, not only just after boot
       ansible.builtin.copy:
-        dest: "{{ _chrony_confdir }}/openctem-makestep.conf"
+        dest: "{{ os_baseline_chrony_confdir }}/openctem-makestep.conf"
         owner: root
         group: root
         mode: '0644'
@@ -153,7 +153,7 @@
   block:
     - name: Install auditd
       ansible.builtin.package:
-        name: ["{{ _pkg.auditd }}"]
+        name: ["{{ os_baseline_pkg.auditd }}"]
         state: present
 
     - name: Audit rules
@@ -284,7 +284,7 @@
           [Coredump]
           Storage=none
           ProcessSizeMax=0
-      register: _coredump_conf
+      register: os_baseline_coredump_conf
 
     - name: Ensure coredump.conf.d directory exists
       ansible.builtin.file:
@@ -367,22 +367,22 @@
       ansible.builtin.command: aa-status --enabled
       changed_when: false
       check_mode: false
-      register: _aa_status
-      failed_when: _aa_status.rc != 0
+      register: os_baseline_aa_status
+      failed_when: os_baseline_aa_status.rc != 0
       when: ansible_os_family == 'Debian'
 
     - name: Assert SELinux is enforcing (RedHat)
       ansible.builtin.command: getenforce
       changed_when: false
       check_mode: false
-      register: _selinux_status
+      register: os_baseline_selinux_status
       when: ansible_os_family == 'RedHat'
 
     - name: SELinux must be Enforcing
       ansible.builtin.assert:
-        that: _selinux_status.stdout | trim == 'Enforcing'
+        that: os_baseline_selinux_status.stdout | trim == 'Enforcing'
         fail_msg: >-
-          SELinux is {{ _selinux_status.stdout | trim }}, not Enforcing.
+          SELinux is {{ os_baseline_selinux_status.stdout | trim }}, not Enforcing.
           Set SELINUX=enforcing in /etc/selinux/config and reboot.
       when: ansible_os_family == 'RedHat'
 
@@ -395,7 +395,7 @@
   block:
     - name: Install AIDE
       ansible.builtin.package:
-        name: ["{{ _pkg.aide }}"]
+        name: ["{{ os_baseline_pkg.aide }}"]
         state: present
 
     - name: AIDE configuration
@@ -419,18 +419,18 @@
     - name: Check if AIDE database exists
       ansible.builtin.stat:
         path: /var/lib/aide/aide.db
-      register: _aide_db
+      register: os_baseline_aide_db
 
     - name: Initialize AIDE database (first run only)
       ansible.builtin.command: aide --init
-      when: not _aide_db.stat.exists
+      when: not os_baseline_aide_db.stat.exists
       changed_when: true
       async: 600
       poll: 30
 
     - name: Activate AIDE database (first run only)
       ansible.builtin.command: mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db
-      when: not _aide_db.stat.exists
+      when: not os_baseline_aide_db.stat.exists
       changed_when: true
 
     - name: AIDE daily check via cron

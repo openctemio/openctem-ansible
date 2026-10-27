@@ -8,6 +8,6 @@ galaxy_info:
     - name: Ubuntu
       versions: [all]
     - name: EL
-      versions: [9]
+      versions: ['9']
 dependencies:
   - role: openctem_common
