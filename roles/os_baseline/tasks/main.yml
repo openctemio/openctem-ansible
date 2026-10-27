@@ -12,6 +12,8 @@
     os_user_pw_ageing: "{{ os_baseline_devsec_vars.os_user_pw_ageing }}"
     os_chmod_home_folders: "{{ os_baseline_devsec_vars.os_chmod_home_folders }}"
     os_filesystem_whitelist: "{{ os_baseline_devsec_vars.os_filesystem_whitelist }}"
+    os_auth_retries: "{{ os_baseline_devsec_vars.os_auth_retries }}"
+    os_auth_lockout_time: "{{ os_baseline_devsec_vars.os_auth_lockout_time }}"
     os_ignore_users: "{{ [ansible_user | default('ubuntu')] }}"
     sysctl_overwrite: "{{ os_baseline_devsec_vars.sysctl_overwrite }}"
   when: os_baseline_devsec_os | bool
@@ -232,13 +234,9 @@
         opts: defaults,noexec,nosuid,nodev,size=2G
         state: mounted
 
-    - name: Harden /dev/shm (noexec,nosuid,nodev)
-      ansible.posix.mount:
-        path: /dev/shm
-        src: tmpfs
-        fstype: tmpfs
-        opts: defaults,noexec,nosuid,nodev
-        state: mounted
+    # /dev/shm is left to devsec os_hardening (os_mnt_dev_shm_*), which already
+    # mounts it nosuid,nodev,noexec. Writing it here as well made the two
+    # rewrite each other's fstab line on every run.
 
     - name: Harden /var/tmp bind mount (noexec,nosuid,nodev)
       ansible.posix.mount:
@@ -317,44 +315,11 @@
         group: root
         mode: '0644'
 
-# ---------------------------------------------------------------------------
-# PAM faillock (CIS 5.3)
-# ---------------------------------------------------------------------------
-- name: PAM faillock
-  tags: [os_pam]
-  when: os_baseline_pam_faillock | bool
-  block:
-    - name: Configure faillock (Debian)
-      ansible.builtin.copy:
-        dest: /etc/security/faillock.conf
-        owner: root
-        group: root
-        mode: '0644'
-        content: |
-          # Managed by Ansible (roles/os_baseline). CIS 5.3.
-          deny = {{ os_baseline_pam_faillock_deny }}
-          unlock_time = {{ os_baseline_pam_faillock_unlock_time }}
-          fail_interval = 900
-          even_deny_root
-          root_unlock_time = {{ os_baseline_pam_faillock_unlock_time }}
-      when: ansible_os_family == 'Debian'
-
-    - name: Configure faillock (RedHat)
-      ansible.builtin.copy:
-        dest: /etc/security/faillock.conf
-        owner: root
-        group: root
-        mode: '0644'
-        content: |
-          # Managed by Ansible (roles/os_baseline). CIS 5.3.
-          deny = {{ os_baseline_pam_faillock_deny }}
-          unlock_time = {{ os_baseline_pam_faillock_unlock_time }}
-          fail_interval = 900
-          even_deny_root
-          root_unlock_time = {{ os_baseline_pam_faillock_unlock_time }}
-          audit
-          local_users_only
-      when: ansible_os_family == 'RedHat'
+# PAM faillock (CIS 5.3) is configured by devsec os_hardening from
+# os_auth_retries and os_auth_lockout_time, which os_baseline_devsec_vars
+# feeds from os_baseline_pam_faillock_deny and _unlock_time. Writing
+# /etc/security/faillock.conf here as well made the two rewrite the file on
+# every run, and which one won depended on task order.
 
 # ---------------------------------------------------------------------------
 # Mandatory access control enforcement (CIS 1.6)
