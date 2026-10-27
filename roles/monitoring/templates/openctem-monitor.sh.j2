@@ -90,9 +90,7 @@ fi
 # 3c. AIDE file integrity check (when installed).
 {% endraw %}
 {% if monitoring_aide_check | bool %}
-# --config is not optional: current Debian/Ubuntu aide builds have no default
-# config path, so the check would exit 17 without ever reporting a change.
-aide_conf={{ '/etc/aide/aide.conf' if ansible_os_family == 'Debian' else '/etc/aide.conf' }}
+aide_conf='{{ monitoring_aide_conf | trim }}'
 {% raw %}
 if command -v aide > /dev/null 2>&1 && [ -f /var/lib/aide/aide.db ] && [ -f "$aide_conf" ]; then
 	aide_rc=0
