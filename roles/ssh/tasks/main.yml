@@ -49,6 +49,50 @@
     # keeps password login as the fallback.
     ssh_server_password_login: "{{ ssh_stage | int == 1 }}"
     sshd_authenticationmethods: "{{ 'publickey password' if ssh_stage | int == 1 else 'publickey' }}"
+    ssh_client_alive_interval: "{{ ssh_devsec_vars.ssh_client_alive_interval }}"
+    ssh_client_alive_count_max: "{{ ssh_devsec_vars.ssh_client_alive_count_max }}"
+
+- name: SSH allowed users
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?\s*AllowUsers\b'
+    line: "AllowUsers {{ ssh_allow_users | join(' ') }}"
+    validate: sshd -t -f %s
+  notify: Restart sshd
+  when: ssh_allow_users | length > 0
+
+- name: SSH allowed groups
+  ansible.builtin.lineinfile:
+    path: /etc/ssh/sshd_config
+    regexp: '^#?\s*AllowGroups\b'
+    line: "AllowGroups {{ ssh_allow_groups | join(' ') }}"
+    validate: sshd -t -f %s
+  notify: Restart sshd
+  when: ssh_allow_groups | length > 0
+
+- name: SSH warning banner
+  when: ssh_banner | bool
+  block:
+    - name: Write the banner file
+      ansible.builtin.copy:
+        dest: /etc/issue.net
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          ###############################################################
+          #  Authorized access only. All activity may be monitored and  #
+          #  recorded. Unauthorized access is strictly prohibited and    #
+          #  may result in disciplinary action and/or criminal charges.  #
+          ###############################################################
+
+    - name: Enable the banner in sshd_config
+      ansible.builtin.lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?\s*Banner\b'
+        line: 'Banner /etc/issue.net'
+        validate: sshd -t -f %s
+      notify: Restart sshd
 
 - name: Apply the SSH handlers now
   ansible.builtin.meta: flush_handlers

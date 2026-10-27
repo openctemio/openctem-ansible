@@ -1,8 +1,15 @@
 ---
-- name: Tools
+- name: Tools (Debian)
   ansible.builtin.apt:
     name: [curl, openssl]
     state: present
+  when: ansible_os_family == 'Debian'
+
+- name: Tools (RedHat)
+  ansible.builtin.dnf:
+    name: [curl, openssl]
+    state: present
+  when: ansible_os_family == 'RedHat'
 
 - name: Config directory
   ansible.builtin.file:
@@ -36,6 +43,39 @@
     path: /etc/openctem/monitor.env
     state: absent
   when: monitoring_webhook_url | length == 0
+
+- name: Dead-man's-switch URL
+  ansible.builtin.copy:
+    dest: /etc/openctem/monitor-deadman.env
+    content: "DEADMAN_URL={{ monitoring_deadman_url | quote }}\n"
+    owner: root
+    group: root
+    mode: '0600'
+  no_log: true
+  when: monitoring_deadman_url | length > 0
+
+- name: No dead-man's-switch configured
+  ansible.builtin.file:
+    path: /etc/openctem/monitor-deadman.env
+    state: absent
+  when: monitoring_deadman_url | length == 0
+
+- name: Email alerting settings
+  ansible.builtin.copy:
+    dest: /etc/openctem/monitor-email.env
+    content: |
+      EMAIL_TO={{ monitoring_email_to | quote }}
+      EMAIL_FROM={{ monitoring_email_from | quote }}
+    owner: root
+    group: root
+    mode: '0600'
+  when: monitoring_email_to | length > 0
+
+- name: No email alerting configured
+  ansible.builtin.file:
+    path: /etc/openctem/monitor-email.env
+    state: absent
+  when: monitoring_email_to | length == 0
 
 - name: Systemd service and timer
   ansible.builtin.copy:

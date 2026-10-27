@@ -17,3 +17,13 @@ monitoring_repeat_seconds: 3600
 monitoring_wal_lag_minutes: 15
 monitoring_wal_spool_max_mb: 2048
 monitoring_basebackup_max_age_days: 8
+
+# --- Additional monitoring ---
+# AIDE file integrity check (runs after the main monitor)
+monitoring_aide_check: true
+# Second alerting channel (email). Empty = disabled.
+monitoring_email_to: ''
+monitoring_email_from: "openctem-monitor@{{ inventory_hostname }}"
+# Dead-man's-switch: POST to this URL on every SUCCESSFUL run.
+# If the URL stops receiving POSTs, the external service alerts.
+monitoring_deadman_url: ''

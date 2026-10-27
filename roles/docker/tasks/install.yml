@@ -1,152 +1,157 @@
 ---
-- name: The host runs the codename this role pins
-  ansible.builtin.assert:
-    that: ansible_facts.distribution_release == docker_apt_codename
-    fail_msg: >-
-      Host codename {{ ansible_facts.distribution_release }} differs from docker_apt_codename
-      {{ docker_apt_codename }}: set the codename and the matching package versions.
+- name: Debian/Ubuntu Docker installation
+  when: ansible_os_family == 'Debian'
+  block:
+    - name: The host runs the codename this role pins
+      ansible.builtin.assert:
+        that: ansible_facts.distribution_release == docker_apt_codename
+        fail_msg: >-
+          Host codename {{ ansible_facts.distribution_release }} differs from docker_apt_codename
+          {{ docker_apt_codename }}: set the codename and the matching package versions.
 
-- name: Docker publishes a repository for this codename
-  ansible.builtin.uri:
-    url: "{{ docker_apt_url }}/dists/{{ docker_apt_codename }}/Release"
-    method: HEAD
-    status_code: [200, 404]
-  register: docker_repo_probe
-  check_mode: false
+    - name: Docker publishes a repository for this codename
+      ansible.builtin.uri:
+        url: "{{ docker_apt_url }}/dists/{{ docker_apt_codename }}/Release"
+        method: HEAD
+        status_code: [200, 404]
+      register: docker_repo_probe
+      check_mode: false
 
-- name: Stop when Docker has no repository for this release
-  ansible.builtin.assert:
-    that: docker_repo_probe.status == 200
-    fail_msg: >-
-      {{ docker_apt_url }}/dists/{{ docker_apt_codename }} does not exist. Docker has not
-      published packages for this Ubuntu release; nothing was installed. Do not fall back to
-      another codename or the distribution's docker.io without a review.
+    - name: Stop when Docker has no repository for this release
+      ansible.builtin.assert:
+        that: docker_repo_probe.status == 200
+        fail_msg: >-
+          {{ docker_apt_url }}/dists/{{ docker_apt_codename }} does not exist. Docker has not
+          published packages for this Ubuntu release; nothing was installed. Do not fall back to
+          another codename or the distribution's docker.io without a review.
 
-- name: Remove conflicting distribution packages
-  ansible.builtin.apt:
-    name: [docker.io, docker-doc, docker-compose, docker-compose-v2, podman-docker, containerd, runc]
-    state: absent
+    - name: Remove conflicting distribution packages
+      ansible.builtin.apt:
+        name: [docker.io, docker-doc, docker-compose, docker-compose-v2, podman-docker, containerd, runc]
+        state: absent
 
-- name: Tools for the key check
-  ansible.builtin.apt:
-    name: [ca-certificates, gnupg]
-    state: present
-    update_cache: true
-    cache_valid_time: 3600
+    - name: Tools for the key check
+      ansible.builtin.apt:
+        name: [ca-certificates, gnupg]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
 
-- name: Keyring directory
-  ansible.builtin.file:
-    path: /etc/apt/keyrings
-    state: directory
-    owner: root
-    group: root
-    mode: '0755'
+    - name: Keyring directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
 
-- name: Docker's signing key (hash pinned)
-  ansible.builtin.get_url:
-    url: "{{ docker_apt_key_url }}"
-    dest: /etc/apt/keyrings/docker.asc
-    checksum: "sha256:{{ docker_apt_key_sha256 }}"
-    owner: root
-    group: root
-    mode: '0644'
+    - name: Docker's signing key (hash pinned)
+      ansible.builtin.get_url:
+        url: "{{ docker_apt_key_url }}"
+        dest: /etc/apt/keyrings/docker.asc
+        checksum: "sha256:{{ docker_apt_key_sha256 }}"
+        owner: root
+        group: root
+        mode: '0644'
 
-- name: Key file present (absent only in a first --check run)
-  ansible.builtin.stat:
-    path: /etc/apt/keyrings/docker.asc
-  register: docker_key_present
+    - name: Key file present (absent only in a first --check run)
+      ansible.builtin.stat:
+        path: /etc/apt/keyrings/docker.asc
+      register: docker_key_present
 
-- name: Read the key's fingerprint
-  ansible.builtin.command: gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc
-  changed_when: false
-  check_mode: false
-  register: docker_key_colons
-  when: docker_key_present.stat.exists
+    - name: Read the key's fingerprint
+      ansible.builtin.command: gpg --show-keys --with-colons /etc/apt/keyrings/docker.asc
+      changed_when: false
+      check_mode: false
+      register: docker_key_colons
+      when: docker_key_present.stat.exists
 
-- name: Assert the fingerprint
-  ansible.builtin.assert:
-    that: docker_apt_key_fingerprint in (docker_key_colons.stdout_lines | select('match', '^fpr:') | map('split', ':') | map(attribute=9) | list)
-    fail_msg: 'Docker apt key fingerprint mismatch: stop.'
-  when: docker_key_colons is not skipped
+    - name: Assert the fingerprint
+      ansible.builtin.assert:
+        that: docker_apt_key_fingerprint in (docker_key_colons.stdout_lines | select('match', '^fpr:') | map('split', ':') | map(attribute=9) | list)
+        fail_msg: 'Docker apt key fingerprint mismatch: stop.'
+      when: docker_key_colons is not skipped
 
-- name: Docker apt source (signed-by this key only)
-  ansible.builtin.copy:
-    dest: /etc/apt/sources.list.d/docker.sources
-    owner: root
-    group: root
-    mode: '0644'
-    content: |
-      # Managed by Ansible (roles/docker_engine).
-      Types: deb
-      URIs: {{ docker_apt_url }}
-      Suites: {{ docker_apt_codename }}
-      Components: stable
-      Architectures: amd64
-      Signed-By: /etc/apt/keyrings/docker.asc
-  register: docker_source
+    - name: Docker apt source (signed-by this key only)
+      ansible.builtin.copy:
+        dest: /etc/apt/sources.list.d/docker.sources
+        owner: root
+        group: root
+        mode: '0644'
+        content: |
+          # Managed by Ansible (roles/docker_engine).
+          Types: deb
+          URIs: {{ docker_apt_url }}
+          Suites: {{ docker_apt_codename }}
+          Components: stable
+          Architectures: amd64
+          Signed-By: /etc/apt/keyrings/docker.asc
+      register: docker_source
 
-- name: Release holds before a version change
-  ansible.builtin.dpkg_selections:
-    name: "{{ item }}"
-    selection: install
-  loop: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
-  failed_when: false
-  when: docker_hold_packages | bool
+    - name: Release holds before a version change
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: install
+      loop: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
+      failed_when: false
+      when: docker_hold_packages | bool
 
-- name: Install the pinned packages
-  ansible.builtin.apt:
-    name:
-      - "docker-ce={{ docker_ce_version }}"
-      - "docker-ce-cli={{ docker_ce_version }}"
-      - "containerd.io={{ docker_containerd_version }}"
-      - "docker-compose-plugin={{ docker_compose_plugin_version }}"
-    state: present
-    update_cache: "{{ docker_source.changed }}"
-    install_recommends: false
-    allow_downgrade: false
+    - name: Install the pinned packages
+      ansible.builtin.apt:
+        name:
+          - "docker-ce={{ docker_ce_version }}"
+          - "docker-ce-cli={{ docker_ce_version }}"
+          - "containerd.io={{ docker_containerd_version }}"
+          - "docker-compose-plugin={{ docker_compose_plugin_version }}"
+        state: present
+        update_cache: "{{ docker_source.changed }}"
+        install_recommends: false
+        allow_downgrade: false
 
-- name: Hold the packages
-  ansible.builtin.dpkg_selections:
-    name: "{{ item }}"
-    selection: hold
-  loop: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
-  when: docker_hold_packages | bool
+    - name: Hold the packages
+      ansible.builtin.dpkg_selections:
+        name: "{{ item }}"
+        selection: hold
+      loop: [docker-ce, docker-ce-cli, containerd.io, docker-compose-plugin]
+      when: docker_hold_packages | bool
 
-- name: Docker enabled and running
-  ansible.builtin.systemd_service:
-    name: docker
-    enabled: true
-    state: started
-  when: not ansible_check_mode
+    - name: Docker enabled and running
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
+      when: not ansible_check_mode
 
-# The docker group is root-equivalent: nobody is added to it. Every
-# docker command in this kit runs through sudo.
-- name: Members of the docker group
-  ansible.builtin.getent:
-    database: group
-    key: docker
-  failed_when: false
-  when: not ansible_check_mode
+    - name: Members of the docker group
+      ansible.builtin.getent:
+        database: group
+        key: docker
+      failed_when: false
+      when: not ansible_check_mode
 
-- name: Assert the docker group is empty
-  ansible.builtin.assert:
-    that: (ansible_facts.getent_group.docker | default(['', '', '', '']))[2] | default('') == ''
-    fail_msg: 'Users are in the docker group (root-equivalent): remove them; use sudo.'
-  when: not ansible_check_mode
+    - name: Assert the docker group is empty
+      ansible.builtin.assert:
+        that: (ansible_facts.getent_group.docker | default(['', '', '', '']))[2] | default('') == ''
+        fail_msg: 'Users are in the docker group (root-equivalent): remove them; use sudo.'
+      when: not ansible_check_mode
 
-- name: Versions
-  ansible.builtin.command: docker version --format '{{ "{{.Server.Version}}" }}'
-  changed_when: false
-  register: docker_versions
-  when: not ansible_check_mode
+    - name: Versions
+      ansible.builtin.command: docker version --format '{{ "{{.Server.Version}}" }}'
+      changed_when: false
+      register: docker_versions
+      when: not ansible_check_mode
 
-- name: Compose plugin version
-  ansible.builtin.command: docker compose version --short
-  changed_when: false
-  register: docker_compose_versions
-  when: not ansible_check_mode
+    - name: Compose plugin version
+      ansible.builtin.command: docker compose version --short
+      changed_when: false
+      register: docker_compose_versions
+      when: not ansible_check_mode
 
-- name: Show versions
-  ansible.builtin.debug:
-    msg: "engine {{ docker_versions.stdout | default('?') }}, compose {{ docker_compose_versions.stdout | default('?') }}"
-  when: not ansible_check_mode
+    - name: Show versions
+      ansible.builtin.debug:
+        msg: "engine {{ docker_versions.stdout | default('?') }}, compose {{ docker_compose_versions.stdout | default('?') }}"
+      when: not ansible_check_mode
+
+- name: RedHat/Rocky Docker installation
+  ansible.builtin.include_tasks: install_rocky.yml
+  when: ansible_os_family == 'RedHat'

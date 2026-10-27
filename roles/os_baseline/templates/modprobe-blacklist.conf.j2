@@ -1,0 +1,6 @@
+# {{ ansible_managed }}
+# Blacklist uncommon filesystems and protocols (CIS 1.1.1, 3.5)
+{% for mod in ['cramfs', 'freevbfs', 'hfs', 'hfsplus', 'jffs2', 'udf', 'usb-storage', 'dccp', 'sctp', 'rds', 'tipc'] %}
+install {{ mod }} /bin/false
+blacklist {{ mod }}
+{% endfor %}

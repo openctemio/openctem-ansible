@@ -43,7 +43,7 @@ backup_wal_sftp_key: "{{ openctem_secrets_dir }}/backup_sftp_key"
 # true: the play writes a probe object with the host's credential and then tries to delete
 # it, and stops when the delete works (the credential must not be able to delete: docs/BACKUP-PITR.md).
 # Also runnable any time: openctem-backup-probe. Default off: not every service can be restricted that way.
-backup_wal_require_append_only: false
+backup_wal_require_append_only: true
 backup_wal_prefix: "{{ openctem_project }}"
 # Point-in-time recovery window: base backups and WAL older than this (and
 # older than the newest base backup before the window) are deleted from the bucket.

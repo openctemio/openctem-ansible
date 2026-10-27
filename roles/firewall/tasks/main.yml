@@ -1,6 +1,11 @@
 ---
-- name: Host firewall (ufw)
+- name: Host firewall (ufw) on Debian
   ansible.builtin.import_tasks: ufw.yml
+  when: ansible_os_family == 'Debian'
+
+- name: Host firewall (firewalld) on RedHat
+  ansible.builtin.import_tasks: firewalld.yml
+  when: ansible_os_family == 'RedHat'
 
 - name: Outbound policy of the stack's containers
   ansible.builtin.import_tasks: egress.yml

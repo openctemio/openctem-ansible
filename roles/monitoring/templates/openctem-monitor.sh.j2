@@ -87,6 +87,16 @@ if [ -f /etc/systemd/system/openctem-egress.service ]; then
 	done
 fi
 
+# 3c. AIDE file integrity check (when installed).
+{% if monitoring_aide_check | bool %}
+if command -v aide > /dev/null 2>&1 && [ -f /var/lib/aide/aide.db ]; then
+	aide_out="$(aide --check 2>&1)" || {
+		changed="$(echo "$aide_out" | grep -cE '^(Added|Removed|Changed):' || true)"
+		[ "$changed" -gt 0 ] && alert "AIDE: file integrity changes detected ($changed entries; aide --check for details)"
+	}
+fi
+{% endif %}
+
 # 4. From outside, through Cloudflare.
 # challenged <path>: Access must stop an anonymous request (302 to the team
 # login or 401/403); a 200 means the path is open without Access.
@@ -150,6 +160,14 @@ now="$(date +%s)"
 if [ "${#alerts[@]}" -eq 0 ]; then
 	[ -n "$prev" ] && [ "$prev" != none ] && info "all checks pass again"
 	echo none > "$MSTATE/digest"
+	# Dead-man's-switch: signal that monitoring is alive.
+	DMF=/etc/openctem/monitor-deadman.env
+	if [ -r "$DMF" ]; then
+		DEADMAN_URL=""
+		# shellcheck disable=SC1090
+		. "$DMF"
+		[ -n "$DEADMAN_URL" ] && curl -sS -m 10 -o /dev/null "$DEADMAN_URL" 2>/dev/null || true
+	fi
 	exit 0
 fi
 if [ "$digest" != "$prev" ] || [ $(( now - sent )) -ge "$REPEAT" ]; then
@@ -175,6 +193,27 @@ if [ "$digest" != "$prev" ] || [ $(( now - sent )) -ge "$REPEAT" ]; then
 			curl -sS -K - -A "openctem-monitor" -m 10 -o /dev/null -H 'Content-Type: application/json' --data-binary @"$body" ||
 			logger -t openctem-monitor -p user.err -- "webhook delivery failed"
 		rm -f "$body"
+	fi
+	# Email notification (second channel).
+	EMAILF=/etc/openctem/monitor-email.env
+	if [ -r "$EMAILF" ]; then
+		EMAIL_TO="" EMAIL_FROM=""
+		# shellcheck disable=SC1090
+		. "$EMAILF"
+		if [ -n "$EMAIL_TO" ]; then
+			printf 'Subject: OpenCTEM: %d alert(s) on %s\nFrom: %s\nTo: %s\n\n%s\n' \
+				"${#alerts[@]}" "$(hostname)" "$EMAIL_FROM" "$EMAIL_TO" \
+				"$(printf '%s\n' "${alerts[@]}")" | sendmail -t 2>/dev/null ||
+				logger -t openctem-monitor -p user.err -- "email delivery failed"
+		fi
+	fi
+	# Dead-man's-switch: signal that monitoring is alive (even when alerting).
+	DMF=/etc/openctem/monitor-deadman.env
+	if [ -r "$DMF" ]; then
+		DEADMAN_URL=""
+		# shellcheck disable=SC1090
+		. "$DMF"
+		[ -n "$DEADMAN_URL" ] && curl -sS -m 10 -o /dev/null "$DEADMAN_URL" 2>/dev/null || true
 	fi
 fi
 exit 1

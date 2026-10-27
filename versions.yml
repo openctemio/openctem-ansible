@@ -120,3 +120,7 @@ docker_apt_key_fingerprint: 9DC858229FC7DD38854AE2D88D81803C0EBFCD88
 docker_ce_version: '5:29.9.0-1~ubuntu.26.04~resolute'
 docker_containerd_version: '2.4.2-2~ubuntu.26.04~resolute'
 docker_compose_plugin_version: '5.6.0-1~ubuntu.26.04~resolute'
+
+# --- Docker Engine (Docker's yum repository, Rocky/RHEL 9) -------------------------
+# docker_rpm_ce_version: set in inventory when targeting Rocky/RHEL
+# See: https://download.docker.com/linux/centos/9/x86_64/stable/Packages/

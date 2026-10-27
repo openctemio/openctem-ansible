@@ -13,7 +13,7 @@
 -w /etc/ssh/sshd_config -p wa -k sshd
 -w /etc/ssh/sshd_config.d/ -p wa -k sshd
 -w /root/.ssh/ -p wa -k ssh_keys
--w /home/ubuntu/.ssh/ -p wa -k ssh_keys
+-w /home/{{ ansible_user | default('ubuntu') }}/.ssh/ -p wa -k ssh_keys
 
 ## Docker: who talks to the daemon and changes its config
 -w /usr/bin/docker -p x -k docker
@@ -27,9 +27,16 @@
 -w /opt/openctem/compose.cloudflared.yml -p wa -k openctem
 -w /opt/openctem/.env -p wa -k openctem
 -w /etc/apt/sources.list.d/ -p wa -k apt_sources
+-w /etc/yum.repos.d/ -p wa -k pkg_sources
+
+## Cron (CIS 5.1)
+-w /etc/crontab -p wa -k cron
+-w /etc/cron.d/ -p wa -k cron
+-w /var/spool/cron/ -p wa -k cron
 
 ## Firewall and kernel modules
 -w /etc/ufw/ -p wa -k firewall
+-w /etc/firewalld/ -p wa -k firewall
 -a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k modules
 
 ## Time changes

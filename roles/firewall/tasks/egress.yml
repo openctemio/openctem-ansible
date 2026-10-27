@@ -44,10 +44,17 @@
 - name: Restricted policy
   when: openctem_egress_policy == 'restricted'
   block:
-    - name: Install iptables
+    - name: Install iptables (Debian)
       ansible.builtin.apt:
         name: [iptables]
         state: present
+      when: ansible_os_family == 'Debian'
+
+    - name: Install iptables (RedHat)
+      ansible.builtin.dnf:
+        name: [iptables-services, iptables]
+        state: present
+      when: ansible_os_family == 'RedHat'
 
     - name: Egress rules script
       ansible.builtin.template:

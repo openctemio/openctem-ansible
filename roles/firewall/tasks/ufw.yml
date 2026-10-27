@@ -100,6 +100,14 @@
   ansible.builtin.debug:
     var: firewall_status.stdout_lines
 
+- name: Deny all IPv6 inbound explicitly
+  community.general.ufw:
+    rule: deny
+    proto: any
+    from_ip: '::/0'
+    comment: openctem-deny-ipv6
+  failed_when: false
+
 - name: Docker publishes no port (ufw does not filter published ports)
   ansible.builtin.command: docker ps --format '{{ "{{.Names}} {{.Ports}}" }}'
   changed_when: false

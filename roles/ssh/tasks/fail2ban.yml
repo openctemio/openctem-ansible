@@ -1,10 +1,23 @@
 ---
-- name: Install fail2ban
+- name: Install fail2ban (Debian)
   ansible.builtin.apt:
     name: [fail2ban]
     state: present
     update_cache: true
     cache_valid_time: 3600
+  when: ansible_os_family == 'Debian'
+
+- name: Enable EPEL for fail2ban (RedHat)
+  ansible.builtin.dnf:
+    name: [epel-release]
+    state: present
+  when: ansible_os_family == 'RedHat'
+
+- name: Install fail2ban (RedHat)
+  ansible.builtin.dnf:
+    name: [fail2ban-firewalld]
+    state: present
+  when: ansible_os_family == 'RedHat'
 
 - name: Sshd jail
   ansible.builtin.copy:
@@ -16,10 +29,10 @@
       # Managed by Ansible (roles/ssh).
       [DEFAULT]
       ignoreip = 127.0.0.1/8 ::1 {{ ssh_fail2ban_ignore_cidrs | join(' ') }}
-      bantime = 1h
+      bantime = {{ ssh_fail2ban_bantime }}
       bantime.increment = true
-      findtime = 10m
-      maxretry = 5
+      findtime = {{ ssh_fail2ban_findtime }}
+      maxretry = {{ ssh_fail2ban_maxretry }}
       backend = systemd
 
       [sshd]

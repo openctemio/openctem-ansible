@@ -18,3 +18,24 @@ docker_daemon_settings:
 # Restart Docker when daemon.json changed. Safe before the stack runs; with
 # live-restore, running containers survive it.
 docker_daemon_restart: false
+
+# --- Additional hardening (CIS Docker Benchmark) ---
+# User namespace remapping (CIS 2.8). Containers run as a remapped UID on the
+# host, so a container escape no longer lands as root. Requires testing that
+# volume permissions still work with the remapped UIDs.
+docker_userns_remap: false
+# Inter-container communication (CIS 2.1). false = containers on the same
+# network can only talk when explicitly linked. The compose networks already
+# segment traffic, so this is defense-in-depth.
+docker_icc: true
+# Explicit storage driver (CIS 2.5). Empty = Docker's default (overlay2 on
+# modern kernels). Set only when you need a specific driver.
+docker_storage_driver: ''
+
+# --- Rocky Linux / RHEL 9 support ---
+docker_yum_url: https://download.docker.com/linux/centos
+docker_yum_key_url: https://download.docker.com/linux/centos/gpg
+# Package versions for Rocky/RHEL (empty = latest from the stable repo).
+docker_rpm_ce_version: ''
+docker_rpm_containerd_version: ''
+docker_rpm_compose_plugin_version: ''
