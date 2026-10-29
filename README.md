@@ -8,7 +8,8 @@ tested restore. Every stage is opt-in, rehearsable with `--check --diff`, and
 keeps your site data outside this repository.
 
 - Target: **Ubuntu 26.04 LTS** (24.04 works for every role except the pinned
-  Docker packages), on any hypervisor or cloud VM.
+  Docker packages) or **Rocky / Alma / RHEL 9**, on any hypervisor or cloud VM.
+  Raise either floor with `openctem_min_ubuntu` or `openctem_min_rhel`.
 - Controller: Linux or macOS with Python 3.11–3.13 and ansible-core 2.18.
 - Sensors are not installed here: they run elsewhere and connect to the
   platform through the same public URL.
@@ -58,7 +59,7 @@ context, for both ways of serving OpenCTEM):
 | | Minimum | Notes |
 |---|---|---|
 | VM | 4 vCPU, 8 GB RAM (7 GB usable), 80 GB disk | The default limits fit this size with ~1.5 GB left to the OS (below). |
-| OS | Ubuntu 26.04 LTS, fresh install, SSH reachable | A sudo user (`ubuntu`), your SSH public key in its `authorized_keys`. |
+| OS | Ubuntu 26.04 LTS or Rocky/Alma/RHEL 9, fresh install, SSH reachable | A sudo user (`ubuntu`), your SSH public key in its `authorized_keys`. |
 | Console | hypervisor console access to the VM | for recovery if SSH breaks; take snapshots |
 | DNS | a zone on Cloudflare (any plan) | one host name, e.g. `ctem.example.com` |
 | Cloudflare | Zero Trust (free tier is enough) with your identity provider | [docs/CLOUDFLARE-ACCESS.md](docs/CLOUDFLARE-ACCESS.md) |

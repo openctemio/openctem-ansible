@@ -12,10 +12,6 @@
       ansible.builtin.meta: end_play
       when: not (apply_docker | default(false) | bool)
     - name: Check the target OS
-      ansible.builtin.assert:
-        that:
-          - ansible_facts.distribution == 'Ubuntu'
-          - ansible_facts.distribution_version is version(openctem_min_ubuntu | default('24.04'), '>=')
-        fail_msg: 'Unsupported OS {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.'
+      ansible.builtin.import_tasks: tasks/assert-os.yml
   roles:
     - role: docker
