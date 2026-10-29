@@ -7,10 +7,26 @@ openctem_secrets_dir: "{{ openctem_root }}/secrets"  # noqa: var-naming[no-role-
 openctem_state_dir: "{{ openctem_root }}/state"  # noqa: var-naming[no-role-prefix]
 # How traffic reaches the gateway:
 #   cloudflared  Cloudflare Tunnel (roles/cloudflared), no host port at all
-#   loopback     the gateway publishes 127.0.0.1:openctem_loopback_port for a
-#                TLS reverse proxy you run on this host (optional alternative)
+#   loopback     the gateway publishes openctem_loopback_bind:openctem_loopback_port
+#                for a TLS reverse proxy (optional alternative)
 openctem_ingress: loopback  # noqa: var-naming[no-role-prefix]
 openctem_loopback_port: 8080  # noqa: var-naming[no-role-prefix]
+# Where that port is published. The default keeps it on the loopback
+# interface, for a proxy on this same host. Set a host address (or 0.0.0.0)
+# when the proxy runs elsewhere -- the port carries plain HTTP, so whatever
+# can route to it reaches the application directly, and the only boundary
+# left is your network. Set openctem_trusted_proxies with it.
+openctem_loopback_bind: 127.0.0.1  # noqa: var-naming[no-role-prefix]
+# Peers whose forwarded client address the gateway believes, as a list of
+# CIDRs. Empty keeps the built-in value for each ingress mode: cloudflared's
+# address, or the bridge gateway a same-host proxy is seen as. An off-host
+# proxy arrives with its own address instead, so name it here or every
+# client IP the platform records becomes that proxy's.
+openctem_trusted_proxies: []  # noqa: var-naming[no-role-prefix]
+# Header carrying the real client address, believed only from the peers
+# above. Empty with openctem_trusted_proxies set means X-Forwarded-For,
+# which is what nginx, Caddy, HAProxy and the cloud load balancers send.
+openctem_client_ip_headers: ''  # noqa: var-naming[no-role-prefix]
 # Fixed internal network for the ingress hop (cloudflared .10, gateway .11).
 openctem_net_tunnel: 172.30.81  # noqa: var-naming[no-role-prefix]
 # Compose project names this kit refuses to touch (other stacks that may

@@ -11,10 +11,11 @@
 {% set admin_site = 'host' if (admin_plane and (openctem_admin_host | length > 0)) else 'off' %}
 {% endif %}
 {% set admin_bind = openctem_admin_bind if openctem_admin_bind | length > 0 else '127.0.0.1' %}
+{% set loopback_bind = openctem_loopback_bind if openctem_loopback_bind | default('') | length > 0 else '127.0.0.1' %}
 # {{ ansible_managed }}
 # OpenCTEM {{ openctem_version }}. The only way in is the gateway on the
 # tunnel network: cloudflared (compose.cloudflared.yml, roles/cloudflared) or,
-# with openctem_ingress=loopback, 127.0.0.1:{{ openctem_loopback_port }}.
+# with openctem_ingress=loopback, {{ loopback_bind }}:{{ openctem_loopback_port }}.
 # Rendered by roles/openctem; edit the role, not this file.
 #
 #   https://{{ openctem_app_host }} (Cloudflare: Access for people, Bypass on
@@ -58,7 +59,7 @@ services:
     user: "1000:1000"
 {% if openctem_ingress == 'loopback' %}
     ports:
-      - "127.0.0.1:{{ openctem_loopback_port }}:80"
+      - "{{ ('[' ~ loopback_bind ~ ']') if ':' in loopback_bind else loopback_bind }}:{{ openctem_loopback_port }}:80"
 {% if console_service and admin_site == 'port' %}
       # The console's site (OPENCTEM_ADMIN_SITE=port): answers only
       # openctem_admin_allowed_cidrs. A published port bypasses the host
@@ -72,7 +73,13 @@ services:
       # TLS ends at Cloudflare (or your reverse proxy); the hop to the
       # gateway stays on the tunnel network.
       OPENCTEM_ALLOW_PLAIN_HTTP: "true"
-{% if openctem_ingress == 'cloudflared' %}
+{% if openctem_trusted_proxies | length > 0 %}
+      # openctem_trusted_proxies: the peers in front of this gateway. Their
+      # forwarded header is believed; from anyone else it is ignored and
+      # dropped, so the API only ever sees a resolved address.
+      OPENCTEM_TRUSTED_PROXIES: {{ openctem_trusted_proxies | join(',') }}
+      OPENCTEM_CLIENT_IP_HEADERS: {{ openctem_client_ip_headers | default('', true) or 'X-Forwarded-For' }}
+{% elif openctem_ingress == 'cloudflared' %}
       # Only cloudflared's client header is believed: Cf-Connecting-Ip, which
       # the Cloudflare edge sets to the one visitor address. From any other
       # peer it is ignored and dropped; the API gets the resolved address only.
