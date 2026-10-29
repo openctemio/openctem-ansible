@@ -43,6 +43,10 @@ flowchart LR
 8. [Security model and hardening checklist](#8-security-model-and-hardening-checklist)
 9. [Repository layout and tests](#9-repository-layout-and-tests)
 
+No Ansible on the target? `ansible-playbook scripts/render-standalone.yml`
+renders a directory that server runs with `docker compose` alone, and writes a
+`NEXT-STEPS.md` into it saying what this kit does that the plain stack does not.
+
 Detailed references: [Installation scenarios](docs/INSTALL-SCENARIOS.md) ·
 [Cloudflare Tunnel and Access](docs/CLOUDFLARE-ACCESS.md) ·
 [Firewall](docs/FIREWALL.md) · [docs site page](docs/self-hosting-with-ansible.md).

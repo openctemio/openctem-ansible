@@ -1,0 +1,112 @@
+---
+# Produce a directory a server runs with `docker compose` alone: no Ansible on
+# that server, no Galaxy collections, no registry login.
+#
+#   ansible-playbook scripts/render-standalone.yml \
+#     -e out_dir=/tmp/openctem-bundle \
+#     -e openctem_version=v0.15.6 \
+#     -e openctem_app_host=ctem.example.com \
+#     -e openctem_ingress=loopback
+#
+# Copy the result to the server at openctem_root (/opt/openctem by default)
+# and follow the NEXT-STEPS.md it writes.
+#
+# Rendering is not the same as deploying, and two things stay on the server by
+# design. Secrets: scripts/openctem-secrets generates them there, so no
+# password is ever written on this machine or carried across. Images: the
+# compose file pins them by digest, which `docker pull` or the archives from
+# scripts/mirror-images.sh satisfy.
+#
+# This renders from the same templates the roles use, so it cannot drift from
+# them the way a compose file committed to the repository would: every release
+# moves the digests in versions.yml, and the template branches on a dozen
+# settings.
+- name: Render a standalone deployment directory
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/openctem/defaults/main.yml
+    - ../roles/cloudflared/defaults/main.yml
+    - ../roles/backup/defaults/main.yml
+    - ../roles/monitoring/defaults/main.yml
+    - ../versions.yml
+  vars:
+    out_dir: "{{ playbook_dir }}/../reports/standalone"
+    roles_dir: "{{ playbook_dir }}/../roles"
+    # Where the files will live ON THE SERVER. It is written into compose.yml,
+    # so it is not out_dir, which is only where they are staged here.
+    openctem_root: /opt/openctem
+    admin_cidrs: []
+    backup_age_recipient: ''
+    release_dir: "releases/{{ openctem_version }}"
+  tasks:
+    - name: Required variables are set
+      ansible.builtin.assert:
+        that:
+          - openctem_app_host | default('') | length > 0
+          - openctem_version in openctem_releases
+        fail_msg: >-
+          Pass -e openctem_app_host=<name> and -e openctem_version=<vX.Y.Z>.
+          Vendored releases: {{ openctem_releases.keys() | list | join(', ') }}.
+
+    - name: Output directories
+      ansible.builtin.file:
+        path: "{{ out_dir }}/{{ item }}"
+        state: directory
+        mode: '0755'
+      loop: ['', scripts, "{{ release_dir }}/gateway/modes"]
+
+    - name: Vendored release files match SHA256SUMS
+      ansible.builtin.command:
+        cmd: sha256sum -c SHA256SUMS
+        chdir: "{{ roles_dir }}/openctem/files/release/{{ openctem_version }}"
+      changed_when: false
+
+    - name: Copy the vendored release files
+      ansible.builtin.copy:
+        src: "{{ roles_dir }}/openctem/files/release/{{ openctem_version }}/"
+        dest: "{{ out_dir }}/{{ release_dir }}/"
+        mode: preserve
+
+    - name: Render the templates
+      ansible.builtin.template:
+        src: "{{ roles_dir }}/{{ item.role }}/templates/{{ item.src }}"
+        dest: "{{ out_dir }}/{{ item.dest }}"
+        mode: "{{ item.mode | default('0644') }}"
+      loop:
+        - {role: openctem, src: compose.yml.j2, dest: compose.yml}
+        - {role: openctem, src: http.site.j2, dest: "{{ release_dir }}/gateway/modes/http.site"}
+        - {role: openctem, src: openctem-secrets.sh.j2, dest: scripts/openctem-secrets, mode: '0750'}
+        - {role: openctem, src: openctem-verify.sh.j2, dest: scripts/openctem-verify, mode: '0750'}
+
+    - name: Render the tunnel connector
+      ansible.builtin.template:
+        src: "{{ roles_dir }}/cloudflared/templates/{{ item.src }}"
+        dest: "{{ out_dir }}/{{ item.dest }}"
+        mode: '0644'
+      loop:
+        - {src: compose.cloudflared.yml.j2, dest: compose.cloudflared.yml}
+        - {src: cloudflared.yml.j2, dest: cloudflared.yml}
+      when: openctem_ingress == 'cloudflared'
+
+    - name: Project settings (file list and project name; no secrets)
+      ansible.builtin.copy:
+        dest: "{{ out_dir }}/.env"
+        mode: '0644'
+        content: |
+          COMPOSE_PROJECT_NAME={{ openctem_project }}
+          COMPOSE_FILE={{ 'compose.yml:compose.cloudflared.yml' if openctem_ingress == 'cloudflared' else 'compose.yml' }}
+
+    - name: What to do with this directory
+      ansible.builtin.template:
+        src: standalone-next-steps.md.j2
+        dest: "{{ out_dir }}/NEXT-STEPS.md"
+        mode: '0644'
+
+    - name: Where it landed
+      ansible.builtin.debug:
+        msg: >-
+          Rendered {{ openctem_version }} for openctem_root={{ openctem_root }}
+          into {{ out_dir }}. Read {{ out_dir }}/NEXT-STEPS.md.

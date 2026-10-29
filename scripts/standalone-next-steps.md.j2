@@ -1,0 +1,82 @@
+# OpenCTEM {{ openctem_version }} — running this directory
+
+Rendered by `scripts/render-standalone.yml` for `openctem_root={{ openctem_root }}`.
+This server needs Docker with the compose plugin. It does not need Ansible,
+Python, Galaxy collections or a registry login.
+
+## 1. Put the directory in place
+
+```sh
+sudo mkdir -p {{ openctem_root }}
+sudo cp -a ./ {{ openctem_root }}/
+sudo chown -R root:root {{ openctem_root }}
+cd {{ openctem_root }}
+```
+
+The path matters: `compose.yml` refers to `{{ openctem_root }}` by absolute
+path. To use a different one, render again with `-e openctem_root=...`.
+
+## 2. Images
+
+`compose.yml` pins every image by digest, so the tag alone will not do.
+
+Online: `docker compose pull`.
+
+Offline: load the archives from `scripts/mirror-images.sh`. A digest survives
+`docker load` only with Docker's containerd image store, which Docker 28 and
+later use by default. Check it first, because without it the images arrive but
+the pins resolve against nothing and the failure surfaces later, somewhere
+unrelated:
+
+```sh
+docker info --format '{{ "{{json .DriverStatus}}" }}'   # expect io.containerd.snapshotter.v1
+```
+
+## 3. Secrets
+
+```sh
+sudo mkdir -p {{ openctem_secrets_dir }} && sudo chmod 0700 {{ openctem_secrets_dir }}
+sudo scripts/openctem-secrets
+```
+
+Run it on this server, once. It generates the database and session secrets
+here and prints file names, never values, so no password is created on the
+machine that rendered this directory or carried it over. It is safe to re-run:
+an existing secret is kept.
+{% if openctem_ingress == 'cloudflared' %}
+
+The tunnel token is yours to place, and this script never touches it:
+
+```sh
+sudo install -o 65532 -g 65532 -m 0400 /path/to/token {{ openctem_secrets_dir }}/cloudflared_tunnel_token
+```
+{% endif %}
+
+## 4. Start
+
+```sh
+sudo docker compose config --quiet      # the file is valid and resolves
+sudo docker compose up -d
+sudo scripts/openctem-verify
+```
+
+{% if openctem_ingress == 'loopback' %}
+The gateway publishes `{{ openctem_loopback_bind | default('127.0.0.1') }}:{{ openctem_loopback_port }}` in plain HTTP, for a TLS
+reverse proxy you run yourself. That proxy owns TLS, must send
+`X-Forwarded-For`, and is the only thing in front of the application.
+{% else %}
+Traffic arrives through the Cloudflare Tunnel connector; the host publishes no
+port at all.
+{% endif %}
+
+## What you are taking on
+
+The Ansible path does more than start containers, and none of it is here: host
+hardening, a firewall, unattended security updates, time sync, file integrity
+monitoring, backups with a tested restore, and monitoring. It also verifies the
+cosign signature of every image before pulling it. Running the stack this way
+is supported; the rest of that list becomes yours.
+
+Upgrading means rendering again with the new `openctem_version` and repeating
+steps 1, 2 and 4. Read the release notes first: a release that migrates the
+schema is not reversible by starting the previous compose file.
