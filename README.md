@@ -72,7 +72,12 @@ signer 128 MB): about 5.4 GB for containers. Change the `openctem_mem_*` and
 **Without Cloudflare (optional):** set `openctem_ingress: loopback`. The
 gateway then listens on `127.0.0.1:8080` (plain HTTP) for a TLS reverse proxy
 you run on the host (Caddy, nginx). You own TLS, client-address forwarding
-(the proxy must set `X-Forwarded-For`) and access control. Opening 443 in the
+(the proxy must set `X-Forwarded-For`) and access control. For a proxy on
+another host, publish the port where it can reach it with
+`openctem_loopback_bind` and name that proxy in `openctem_trusted_proxies`:
+the port is plain HTTP, so the network is then the only thing in front of
+the application, and without the second setting every client address the
+platform records becomes the proxy's. Opening 443 in the
 firewall is then your change. Also set `monitoring_external_probes: false`
 (those probes assume Cloudflare). The guide
 [Deploy without Cloudflare](https://docs.openctem.io/install/ansible-without-cloudflare/)
