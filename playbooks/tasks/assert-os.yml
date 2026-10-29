@@ -1,0 +1,20 @@
+---
+# The OS gate, in one place. Every play imports this file.
+#
+# It used to be copied into each stage, and the copies had drifted to
+# Ubuntu-only while preflight kept the two-family check. A Rocky host
+# therefore passed preflight and failed on the first stage it enabled,
+# although roles/docker, roles/firewall, roles/os_baseline, roles/monitoring
+# and roles/ssh all branch on ansible_os_family already.
+- name: Check the target OS
+  ansible.builtin.assert:
+    that: >-
+      (ansible_facts.distribution == 'Ubuntu' and
+       ansible_facts.distribution_version is version(openctem_min_ubuntu | default('24.04'), '>='))
+      or
+      (ansible_facts.distribution in ['Rocky', 'AlmaLinux', 'RedHat'] and
+       ansible_facts.distribution_major_version is version(openctem_min_rhel | default('9'), '>='))
+    fail_msg: >-
+      Unsupported OS {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.
+      Supported: Ubuntu >= {{ openctem_min_ubuntu | default('24.04') }}
+      or Rocky/Alma/RHEL >= {{ openctem_min_rhel | default('9') }}.

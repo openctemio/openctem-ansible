@@ -11,16 +11,7 @@
     openctem_tunnel_token_file: "{{ openctem_secrets_dir }}/cloudflared_tunnel_token"
   tasks:
     - name: Assert intended OS
-      ansible.builtin.assert:
-        that: >-
-          (ansible_facts.distribution == 'Ubuntu' and
-           ansible_facts.distribution_version is version(openctem_min_ubuntu | default('24.04'), '>='))
-          or
-          (ansible_facts.distribution in ['Rocky', 'AlmaLinux', 'RedHat'] and
-           ansible_facts.distribution_major_version is version('9', '>='))
-        fail_msg: >-
-          Unsupported OS {{ ansible_facts.distribution }} {{ ansible_facts.distribution_version }}.
-          Supported: Ubuntu >= 24.04 or Rocky/Alma/RHEL >= 9.
+      ansible.builtin.import_tasks: tasks/assert-os.yml
 
     - name: Determine OS family
       ansible.builtin.set_fact:
