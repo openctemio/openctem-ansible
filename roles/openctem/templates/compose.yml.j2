@@ -538,6 +538,16 @@ services:
       - max_wal_size={{ openctem_pg_max_wal_size }}
       - -c
       - password_encryption=scram-sha-256
+{% if openctem_pg_stat_statements | bool %}
+      - -c
+      - shared_preload_libraries=pg_stat_statements
+      - -c
+      - pg_stat_statements.max=5000
+      - -c
+      - pg_stat_statements.track=top
+      - -c
+      - track_io_timing=on
+{% endif %}
 {% if openctem_wal_archive | bool %}
       # Continuous archiving: a finished segment is copied (and synced) into the
       # spool, which the host's openctem-wal-ship encrypts and uploads. Succeeds

@@ -152,6 +152,19 @@
           {% else %}The compose file did not change, so there was nothing to roll back; the stack was restarted
           (verify {{ 'passed' if (openctem_verify_prev.rc | default(1)) == 0 else 'FAILED' }}).{% endif %}
 
+- name: Create the pg_stat_statements extension
+  ansible.builtin.command:
+    cmd: >-
+      {{ openctem_compose }} exec -T postgres
+      psql -U postgres -d openctem -v ON_ERROR_STOP=1 -qAt
+      -c "CREATE EXTENSION IF NOT EXISTS pg_stat_statements"
+    chdir: "{{ openctem_root }}"
+  register: openctem_pgss
+  changed_when: false
+  when:
+    - openctem_pg_stat_statements | bool
+    - not ansible_check_mode
+
 - name: Record the deployed release
   ansible.builtin.copy:
     dest: "{{ openctem_state_dir }}/deployed-version"

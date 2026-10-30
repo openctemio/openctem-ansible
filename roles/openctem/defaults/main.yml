@@ -62,6 +62,9 @@ openctem_pg_effective_cache_size: 2GB
 openctem_pg_work_mem: 8MB
 openctem_pg_maintenance_work_mem: 128MB
 openctem_pg_max_wal_size: 1GB
+# Per-statement timing (pg_stat_statements) for performance work. Needs a
+# Postgres restart when changed; the extension is created after the stack starts.
+openctem_pg_stat_statements: true
 openctem_pg_shm_size: 256m
 openctem_cpus_api: '2.0'
 openctem_cpus_web: '1.0'
