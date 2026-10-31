@@ -33,6 +33,7 @@ host anything. That is what scenarios B and C are about.
 |---|---|
 | The host reaches the internet (directly or via NAT) | [A](#scenario-a--the-host-reaches-the-internet) |
 | Only the Ansible controller reaches the internet | [B](#scenario-b--only-the-controller-reaches-the-internet) |
+| The host reaches a registry you already run, but not the internet | [B3](#option-b3--a-registry-your-organisation-already-runs) |
 | Neither reaches the internet; files cross on removable media | [C](#scenario-c--a-true-air-gap) |
 | Everything goes through a corporate HTTP proxy | [D](#scenario-d--a-corporate-http-proxy) |
 
@@ -319,6 +320,29 @@ controller. If that is a policy violation rather than a routing fact, use B1.
 Also keep the SSH connection alive: if the tunnel drops mid-`pull`, the pull
 fails.
 
+### Option B3 — a registry your organisation already runs
+
+B1 stands up a registry because there is none. If there already is one — Harbor,
+Nexus, Artifactory, a GitLab container registry — and the host is allowed to
+reach it, mirror into that instead and skip the tunnel entirely:
+
+```bash
+scripts/mirror-to-registry.sh v0.17.0 registry.example.com
+```
+
+It wraps `mirror-images.sh` with the preview, the cosign run, and the check that
+the registry serves every image back **by its pinned digest** — the failure mode
+B1 cannot hit, because a registry that re-serialises manifests on push breaks
+the pins while reporting a successful copy.
+
+Then set the same two variables as B1, or, for a directory from
+`scripts/render-standalone.yml`, render it with them. The host needs no internet
+at all, and the images inherit the registry's retention, access control and
+audit trail.
+
+[docs/CORPORATE-REGISTRY.md](CORPORATE-REGISTRY.md) is the walkthrough:
+repository layout, certificates, credentials, upgrades.
+
 ---
 
 ## Scenario C — a true air gap
@@ -396,6 +420,7 @@ store and set `openctem_registry_ca_file` so the cosign container trusts it too.
 | B1 | On the controller, before mirroring | `false` |
 | B1 + `--signatures` + TLS registry | On the host, against the mirror | leave at default |
 | B2 | On the host, through the tunnel | leave at default |
+| B3 | On the mirroring machine, before copying | `false` |
 | C | On the staging machine, phase 1 | `false` |
 | D | Controller or host, depending on the proxy | see above |
 
@@ -414,6 +439,7 @@ both deserve investigation.
 | `docker-ce=... not found` on Ubuntu | version pins are for 26.04; override for your release |
 | `docker compose pull` fails with no internet | images were `docker load`ed, so they carry no digest — use a registry (B1) |
 | Pull fails against a mirror | the mirror was filled without `--preserve-digests`, so the digest changed |
+| Pull fails against a mirror filled *with* `--preserve-digests` | the registry re-serialised the manifest on push; `scripts/mirror-to-registry.sh` catches this at mirroring time |
 | Third-party image not found on the mirror | the path after the host must be kept: `<mirror>/library/postgres`, not `<mirror>/postgres` |
 | Deploy stops at *Verify the release signatures* | the host cannot reach sigstore, or the signature is not on the mirror |
 | fail2ban missing on Rocky | EPEL is unreachable; mirror it or pre-install the package |
@@ -422,6 +448,7 @@ both deserve investigation.
 ## See also
 
 - [self-hosting-with-ansible.md](self-hosting-with-ansible.md) — the guided walkthrough
+- [CORPORATE-REGISTRY.md](CORPORATE-REGISTRY.md) — mirroring into a registry you already run
 - [FIREWALL.md](FIREWALL.md) — ingress and container egress policy
 - [CLOUDFLARE-ACCESS.md](CLOUDFLARE-ACCESS.md) — Access applications for the tunnel
 - [BACKUP-PITR.md](BACKUP-PITR.md) — backups and point-in-time recovery

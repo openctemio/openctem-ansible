@@ -48,6 +48,7 @@ renders a directory that server runs with `docker compose` alone, and writes a
 `NEXT-STEPS.md` into it saying what this kit does that the plain stack does not.
 
 Detailed references: [Installation scenarios](docs/INSTALL-SCENARIOS.md) ·
+[Private registry](docs/CORPORATE-REGISTRY.md) ·
 [Cloudflare Tunnel and Access](docs/CLOUDFLARE-ACCESS.md) ·
 [Firewall](docs/FIREWALL.md) · [docs site page](docs/self-hosting-with-ansible.md).
 
@@ -455,7 +456,8 @@ inventory, the compose file or git.
 
 By default the images come from `ghcr.io/openctemio` and the role pulls from the public
 registries. To run from your own registry (Harbor, Nexus, a GitLab registry), mirror the
-images and set, in `group_vars`:
+images with `scripts/mirror-to-registry.sh` — the walkthrough is
+[docs/CORPORATE-REGISTRY.md](docs/CORPORATE-REGISTRY.md) — and set, in `group_vars`:
 
 ```yaml
 openctem_registry_mirror: registry.example.com/openctem          # replaces ghcr.io/openctemio

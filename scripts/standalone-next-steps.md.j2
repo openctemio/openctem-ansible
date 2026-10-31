@@ -22,6 +22,12 @@ path. To use a different one, render again with `-e openctem_root=...`.
 
 Online: `docker compose pull`.
 
+From your own registry: `docker login <registry>`, then `docker compose pull`.
+The references above already point there when this directory was rendered with
+`openctem_registry_mirror` and `openctem_third_party_registry_mirror`; when it
+was not, the kit's `scripts/compose-use-mirror.sh` rewrites them in place,
+digests intact. See the kit's `docs/CORPORATE-REGISTRY.md`.
+
 Offline: load the archives from `scripts/mirror-images.sh`. A digest survives
 `docker load` only with Docker's containerd image store, which Docker 28 and
 later use by default. Check it first, because without it the images arrive but
