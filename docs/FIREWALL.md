@@ -88,6 +88,26 @@ openctem_egress_allow:
 a tenant-controlled URL could aim at: add only what a configured integration
 needs.
 
+**Behind a corporate proxy** (outbound mostly blocked, the only way out is an
+HTTPS proxy): set `openctem_feed_proxy: 'http://proxy.corp.example:3128'`
+(a proxy password goes in `<openctem_secrets_dir>/feed_proxy_url` on the
+server, never in the inventory) and, with `restricted`, allow the proxy:
+`{ cidr: <proxy address>/32, port: 3128 }`. The API then fetches only its own
+feeds through it: vulnerability bundles, CISA KEV, EPSS, the CTEM-ID catalog,
+the program feed and the release feed. Webhooks, integrations and anything an
+organization configures never go through the proxy. `openctem_feed_no_proxy`
+lists hosts reached directly (an internal bundle mirror). Needs an OpenCTEM
+release flagged `feed_proxy` in `versions.yml`; the preflight refuses the
+settings otherwise.
+
+Hosts the feeds need (HTTPS, port 443) when you allow them at the proxy or the
+firewall instead: `github.com`, `release-assets.githubusercontent.com`,
+`objects.githubusercontent.com` (vulnerability bundles, release feed);
+`www.cisa.gov` then `raw.githubusercontent.com` (KEV); `epss.empiricalsecurity.com`
+(EPSS); `ctem.org` (CTEM-ID). KEV and EPSS also arrive inside the signed
+vulnerability bundles, and an air-gapped install reads the bundles from a
+local directory: OpenCTEM `api/docs/deployment/air-gapped.md`.
+
 **How it is enforced.** `playbooks/35-firewall.yml` (with `apply_firewall`)
 installs `/usr/local/sbin/openctem-egress` and a systemd unit. The script
 writes two chains of its own, `OPENCTEM-EGRESS` (forwarded traffic: LAN,
