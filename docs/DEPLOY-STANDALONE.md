@@ -76,6 +76,11 @@ registry by the digest `versions.yml` pins. See
 [CORPORATE-REGISTRY.md](CORPORATE-REGISTRY.md) for the options, the two
 repository prefixes, and what to do when that read-back fails.
 
+The build host needs `skopeo`, and for the signature check either `cosign`
+(**version 3** — see the troubleshooting table) or Docker, through which the
+script runs the cosign image `versions.yml` pins. It needs Docker for nothing
+else: `skopeo` copies registry to registry without local storage.
+
 ## 2. Render the directory
 
 Put the deployment's settings in a variables file. Keep it outside the kit's
@@ -256,6 +261,9 @@ happens at the boundary instead of on the server.
 | Symptom | Cause |
 |---|---|
 | `manifest unknown` on the server, image visible in the registry UI | mirrored with `docker push`, or the registry re-serialised the manifest |
+| `cosign` says `no signatures found` for a release that is signed | cosign 2 looking for the `sha256-<digest>.sig` tag; the signatures are under the referrers fallback tag `sha256-<digest>` that cosign 3 writes when the registry has no referrers API. Install cosign 3 |
+| `neither cosign nor docker is available` | install cosign 3 on the build host, or Docker so the script can run the pinned cosign image |
+| `unauthorized ... action: push` while copying | the account can pull but not push to that project; nothing is written, so it is safe to fix the rights and re-run |
 | Gateway container starts and exits immediately | only `compose.yml` was copied; `releases/<version>/gateway/` is missing |
 | `compose.yml` still names `ghcr.io` or `docker.io` | rendered without the mirror variables; re-render, or rewrite with `scripts/compose-use-mirror.sh` |
 | Every client address in the logs is the proxy's | `openctem_trusted_proxies` does not list the proxy |

@@ -70,9 +70,23 @@ Useful options:
 `OC_PROJECT` and `TP_PROJECT` override the two prefix names (`openctem` and
 `openctem-3p`).
 
-The script needs `skopeo`. It does not need `cosign` installed: when the binary
-is missing it runs cosign from the image `versions.yml` already pins, so a
-missing tool never quietly degrades into an unverified mirror.
+The script needs `skopeo`. It does not need `cosign` installed **as long as
+Docker is there**: when the binary is missing it runs cosign from the image
+`versions.yml` already pins, so a missing tool never quietly degrades into an
+unverified mirror. A machine with neither stops with a message saying so,
+which is the intended outcome — `--no-verify` has to be asked for.
+
+Install cosign itself and it must be **version 3**, the major `versions.yml`
+pins. The signatures are stored under the referrers fallback tag
+`sha256-<digest>`, which is what cosign writes when a registry has no
+referrers API — ghcr.io does not. Cosign 2 looks for the older
+`sha256-<digest>.sig` tag instead, finds nothing, and reports `no signatures
+found`, which reads like an unsigned release rather than the wrong tool. A
+distribution's packaged cosign is often still 2.x, so check:
+
+```bash
+cosign version | grep GitVersion
+```
 
 Underneath it is [`scripts/mirror-images.sh`](../scripts/mirror-images.sh),
 which reads `versions.yml` and is the single source of truth for what gets
