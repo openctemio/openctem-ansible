@@ -16,6 +16,35 @@ Ansible is needed once, on the build host, and never touches the server. The
 server needs Docker with the compose plugin, and nothing else: no Ansible, no
 Python, no Galaxy collections. It needs no outbound internet access at all.
 
+```mermaid
+flowchart LR
+  public["ghcr.io · docker.io"]
+  sigstore["sigstore"]
+  subgraph build["Build host: the only machine that reaches both sides"]
+    cosign["cosign verify"]
+    skopeo["skopeo copy --all --preserve-digests"]
+    render["render-standalone.yml"]
+  end
+  reg[("Your registry")]
+  subgraph server["Server: reaches the registry and nothing else"]
+    dir["/opt/openctem: compose.yml, releases/, scripts/"]
+    stack["gateway · web · console · API · PostgreSQL · Redis · signer"]
+  end
+  public -->|"by digest"| skopeo
+  cosign -.->|"signature, at the tag"| sigstore
+  skopeo -->|"digests preserved"| reg
+  reg -.->|"read back by the PINNED digest"| skopeo
+  render -->|"a directory, carried over: scp, tar"| dir
+  reg -->|"docker compose pull, by digest"| stack
+  dir --> stack
+```
+
+Two things never cross a boundary in that picture. Secrets are generated on
+the server by `scripts/openctem-secrets`, so no password exists on the build
+host or inside the archive. And the digest the server pulls by is the one
+cosign verified on the build host, which is what makes the dashed read-back
+arrow worth its round trip.
+
 ## Two things that look like shortcuts and are not
 
 Both of these produce a deployment that appears to work on the build host and
@@ -236,6 +265,38 @@ With `openctem_ingress: loopback` the gateway speaks plain HTTP on
 `openctem_loopback_bind:openctem_loopback_port`. Your proxy owns TLS and is the
 only thing in front of the application:
 
+```mermaid
+flowchart LR
+  people(["People (browser)"]) -->|"HTTPS"| proxy
+  subgraph host["Server"]
+    proxy["Your TLS proxy: nginx, Caddy"]
+    subgraph docker["Docker"]
+      gw["gateway: routes by Host and plane"]
+      web["web console"]
+      api["API"]
+      pg[("PostgreSQL")]
+      rd[("Redis")]
+      gw -->|"origin network"| web
+      gw -->|"origin network"| api
+      web --> api
+      api -->|"data network, TLS"| pg
+      api -->|"data network, TLS"| rd
+    end
+    proxy -->|"plain HTTP · X-Forwarded-For · Host"| gw
+  end
+```
+
+TLS ends at the proxy, so the hop from there to the gateway carries passwords,
+session cookies and sensor keys in clear. On the same host that hop is
+loopback and never reaches a network; with the proxy elsewhere, the network
+between them is the only thing protecting it, and
+`openctem_loopback_bind` has to publish the port where that proxy can reach it.
+
+`Host` decides which site answers: the application host, or
+`openctem_admin_host` when `openctem_admin_site` is `host`. A proxy that does
+not forward it sends every request to the application site, and the console
+becomes unreachable with nothing in the logs to explain why.
+
 ```nginx
 proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
 proxy_set_header X-Forwarded-Proto https;
@@ -248,6 +309,34 @@ network, so the network itself is the only thing protecting it.
 In `host` admin mode the console is its own virtual host
 (`openctem_admin_host`, on `openctem_admin_port`), not a path on the
 application site: the application port answers 404 for `/api/v1/admin`.
+
+## Stopping and starting
+
+```bash
+sudo docker compose up -d        # apply a change, start what is down
+sudo docker compose down         # stop everything, KEEP the volumes
+```
+
+**`docker compose down -v` deletes the volumes**, and the volumes are the
+deployment's whole state: the database, the job signer's key, the gateway's
+configuration, Redis. There is no undo. After it, this is a fresh install
+again — new secrets, a new signer key, and the first administrator bootstrapped
+once more, because the old one was in the database that went with it.
+
+The signer key makes the loss loud rather than silent, which is some mercy:
+the next `up` stops on the signer and takes the application with it. Run it in
+a loop and the same three failures come back every time, each looking like a
+new fault.
+
+Order matters on a first start, for the same reason. Generate the secrets,
+create the signer key, then start. A signer container created while the key
+was missing stays unhealthy even once the key exists, because `up` reuses a
+container whose configuration has not changed:
+
+```bash
+sudo docker compose up -d --force-recreate signer
+sudo docker compose up -d
+```
 
 ## Upgrading
 
@@ -289,6 +378,8 @@ happens at the boundary instead of on the server.
 | `unauthorized ... action: push` while copying | the account can pull but not push to that project; nothing is written, so it is safe to fix the rights and re-run |
 | Gateway container starts and exits immediately | only `compose.yml` was copied; `releases/<version>/gateway/` is missing |
 | `signer.pem: no such file or directory`, signer restarting | the signer key was never created; run `scripts/openctem-signer-key` |
+| `dependency failed to start: container ...-signer-1 is unhealthy`, key now exists | the container was created before the key was; `up` reuses it unchanged. `up -d --force-recreate signer` |
+| The same failures return after every re-run | `down -v` is deleting the volumes each time, the signer key among them; use `down` without the flag |
 | `curl` connects to the published port, then times out with 0 bytes | the host's own egress policy drops the proxy's connection to the container; see [FIREWALL.md](FIREWALL.md#the-opposite-caveat-a-host-egress-allowlist) |
 | Redis restarting, no error about permissions | `secrets/redis.conf` is still root-owned 0400; `chown 999:1000` it |
 | `db-roles`: `Permission denied` on `/bootstrap/least-privilege-roles.sql` | the directory arrived without world-read; `chmod -R a+rX <root>/releases` |

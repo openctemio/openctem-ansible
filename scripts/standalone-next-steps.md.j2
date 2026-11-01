@@ -79,6 +79,18 @@ the `signer-keys` volume, is never mounted into the API, and leaves this host
 only inside an encrypted backup. Re-running keeps an existing key: replacing
 it would orphan every signature already made with the old one.
 
+Do this **before** the first `up`. A signer container created while the key
+was still missing stays unhealthy afterwards, because `up` reuses a container
+whose configuration has not changed and does not re-run its failed start. The
+rest of the stack waits on the signer's health, so everything after it stops
+with `dependency failed to start`. Creating the key at that point is not
+enough; the container has to be replaced:
+
+```sh
+sudo docker compose up -d --force-recreate signer
+sudo docker compose up -d
+```
+
 ## 5. Start
 
 ```sh
@@ -116,6 +128,28 @@ reverse proxy you run yourself. That proxy owns TLS, must send
 Traffic arrives through the Cloudflare Tunnel connector; the host publishes no
 port at all.
 {% endif %}
+
+## Stopping and starting
+
+```sh
+sudo docker compose restart <service>   # one service
+sudo docker compose up -d               # apply a change, start what is down
+sudo docker compose down                # stop everything, KEEP the volumes
+```
+
+**`docker compose down -v` deletes the volumes**, and that is the whole
+deployment's state: the database, the job signer's key, the gateway's
+configuration, Redis. There is no undo and no warning. After it you are
+installing from scratch — generate the secrets again, create a new signer key,
+and bootstrap the first administrator again, because the old one lived in the
+database that was just removed.
+
+Use it only when wiping this install on purpose. For everything else `down`
+without the flag stops the stack and keeps the data.
+
+A signer key is particularly easy to lose this way: `down -v` removes it, the
+next `up` fails on the signer, and the cycle repeats for as long as `-v` keeps
+being passed.
 
 ## What you are taking on
 
