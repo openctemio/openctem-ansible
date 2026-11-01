@@ -111,7 +111,11 @@ ansible-playbook scripts/render-standalone.yml \
 
 Copy the directory to the server and follow the `NEXT-STEPS.md` it writes.
 Ansible is needed once, here, on the machine that renders; the server never
-sees it.
+sees it. [DEPLOY-STANDALONE.md](DEPLOY-STANDALONE.md) walks the rest of that
+path — carrying the directory, the deploy itself, the first administrator and
+the proxy in front — and covers the two mistakes that look like shortcuts:
+mirroring with `docker push`, and copying `compose.yml` without the directory
+around it.
 
 ### Re-pointing a directory that is already rendered
 
@@ -197,6 +201,7 @@ the release you are running and the one before it.
 
 ## See also
 
+- [DEPLOY-STANDALONE.md](DEPLOY-STANDALONE.md) — the whole path from here to a running server, without Ansible
 - [INSTALL-SCENARIOS.md](INSTALL-SCENARIOS.md) — every network shape, including the air gap
 - [README, Private registry / air-gapped](../README.md#private-registry--air-gapped) — the variable reference
 - [scripts/mirror-images.sh](../scripts/mirror-images.sh) — the copying itself

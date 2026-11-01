@@ -49,6 +49,7 @@ renders a directory that server runs with `docker compose` alone, and writes a
 
 Detailed references: [Installation scenarios](docs/INSTALL-SCENARIOS.md) ·
 [Private registry](docs/CORPORATE-REGISTRY.md) ·
+[Deploy without Ansible](docs/DEPLOY-STANDALONE.md) ·
 [Cloudflare Tunnel and Access](docs/CLOUDFLARE-ACCESS.md) ·
 [Firewall](docs/FIREWALL.md) · [docs site page](docs/self-hosting-with-ansible.md).
 
