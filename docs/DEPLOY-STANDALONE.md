@@ -173,10 +173,33 @@ sudo docker compose pull
 sudo mkdir -p /opt/openctem/secrets && sudo chmod 0700 /opt/openctem/secrets
 sudo scripts/openctem-secrets
 
+# two secrets are read by a container running as its own user
+sudo chown 999:1000 /opt/openctem/secrets/redis.conf
+sudo chown 999:999  /opt/openctem/secrets/db_superuser_password
+
+# the job signer's key: nothing else creates it
+sudo docker compose run --rm --no-deps -T \
+    signer keygen -out /var/lib/openctem-signer/keys/signer.pem
+
 sudo docker compose config --quiet
 sudo docker compose up -d
 sudo scripts/openctem-verify
 ```
+
+The two steps between generating the secrets and starting are the ones the
+Ansible path performs and this directory does not carry.
+
+`openctem-secrets` writes every file mode 0400 owned by root, which is right
+for the ones Compose reads as root and wrong for the two a container opens as
+its own user. Redis without a readable `redis.conf` restarts in a loop and
+says nothing about permissions. The ids are given numerically on purpose:
+those users do not exist on the host, so a name would not resolve.
+
+The signer key is not one of the files `openctem-secrets` writes, and the
+signer refuses to start without it — `signer.pem: no such file or directory`,
+over and over. Create it once, before the first start. It prints a key id and
+the PUBLIC key, both worth recording; the private key stays in the
+`signer-keys` volume and is never mounted into the API.
 
 An internal certificate authority goes in
 `/etc/docker/certs.d/<registry>/ca.crt`, where `<registry>` includes the port
@@ -265,6 +288,9 @@ happens at the boundary instead of on the server.
 | `neither cosign nor docker is available` | install cosign 3 on the build host, or Docker so the script can run the pinned cosign image |
 | `unauthorized ... action: push` while copying | the account can pull but not push to that project; nothing is written, so it is safe to fix the rights and re-run |
 | Gateway container starts and exits immediately | only `compose.yml` was copied; `releases/<version>/gateway/` is missing |
+| `signer.pem: no such file or directory`, signer restarting | the signer key was never created; `openctem-secrets` does not write it |
+| Redis restarting, no error about permissions | `secrets/redis.conf` is still root-owned 0400; `chown 999:1000` it |
+| `db-roles`: `Permission denied` on `/bootstrap/least-privilege-roles.sql` | the directory arrived without world-read; `chmod -R a+rX <root>/releases` |
 | `compose.yml` still names `ghcr.io` or `docker.io` | rendered without the mirror variables; re-render, or rewrite with `scripts/compose-use-mirror.sh` |
 | Every client address in the logs is the proxy's | `openctem_trusted_proxies` does not list the proxy |
 | Console unreachable | wrong virtual host, or the client is outside `openctem_admin_allowed_cidrs` |
