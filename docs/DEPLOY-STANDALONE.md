@@ -124,12 +124,24 @@ the CLI exits with `OSError: [WinError 87]`). Render on Linux, or in WSL.
 ## 3. Check before carrying
 
 ```bash
-grep -n 'image:.*\(ghcr\.io\|docker\.io\)' /tmp/openctem-bundle/compose.yml
+grep -nE '^[[:space:]]*image:[[:space:]]*(ghcr\.io|docker\.io)/' /tmp/openctem-bundle/compose.yml
 ```
 
 This must print nothing. A line that survives means the render did not pick up
 the mirror variables, and the server — which cannot reach those registries —
 will fail to pull.
+
+The pattern is anchored at the registry host, everything before the first
+slash, rather than searching the line for `ghcr.io` anywhere in it. Registries
+are often laid out as `<registry>/<project>/<original-host>/<path>`, which
+keeps an image's provenance visible in its name. Under that layout every
+correctly rewritten line still contains `ghcr.io` or `docker.io`, and the
+looser pattern reports all of them. Listing the hosts is the other way to read
+the same thing, and shows your registry and nothing else:
+
+```bash
+grep -oE '^[[:space:]]*image:[[:space:]]*[^/]+' /tmp/openctem-bundle/compose.yml | sort -u
+```
 
 ## 4. Carry it over
 
