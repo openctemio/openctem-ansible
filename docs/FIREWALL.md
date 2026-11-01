@@ -45,6 +45,66 @@ If another workload on this host must publish a port, filter it in the
 `DOCKER-USER` chain (iptables backend; check with `docker info --format
 '{{.FirewallBackend}}'`) or upstream, never with ufw rules alone.
 
+## The opposite caveat: a host egress allowlist
+
+Published ports fail the other way on a host whose own outbound traffic is
+filtered — a corporate baseline that allowlists destinations and drops the
+rest on 80 and 443 is the usual shape:
+
+```
+-A OUTPUT -d 10.0.0.0/8 -p tcp --dport 443 -j ACCEPT
+...
+-A OUTPUT -p tcp --dport 443 -j DROP
+-A OUTPUT -p tcp --dport 80  -j DROP
+```
+
+Docker's bridge subnets are not in a list like that, and with
+`userland-proxy: true` (the Docker default; this kit's `daemon.json` turns it
+off) the host itself opens a connection to the container — `docker-proxy`
+accepts yours on the published port, then dials `172.x.y.z:80`. That second
+connection is the host's own outbound traffic, so it meets the `OUTPUT` chain
+and is dropped on the container's port, not the published one.
+
+The symptom reads like an application fault and is not one. `curl` prints
+`Connected`, sends the request and receives nothing until it times out: the
+proxy accepted the connection it could, and the one it could not make leaves
+no error to return. Inside the container the server answers normally.
+
+Prove where it stops before changing a rule:
+
+```bash
+sudo docker exec <gateway-container> wget -S -O- -T 5 http://127.0.0.1:80/
+```
+
+An answer there — `404` is one, when the Host header matches no site — means
+the application is healthy and the break is on the host's own network path.
+Then allow the bridges, which are virtual interfaces on this machine and not
+the internet, so this does not widen the egress policy:
+
+```bash
+sudo iptables -I OUTPUT -d 172.17.0.0/16 -j ACCEPT   # docker0
+sudo iptables -I OUTPUT -d 172.30.0.0/16 -j ACCEPT   # this stack's networks
+```
+
+Check which subnets a host actually uses with `ip -4 addr show | grep -E
+'docker0|br-'`; Docker allocates them per network, so they differ per host.
+
+Inbound needs its own rule, because the published port is usually not the one
+a baseline already permits: 80 and 443 commonly are, `8080` is not. Keep it
+narrow, to the proxy that needs it:
+
+```bash
+sudo iptables -I INPUT -s <proxy>/32 -p tcp --dport <published port> -j ACCEPT
+```
+
+A reverse proxy on the same host needs neither rule, since loopback traffic
+meets neither chain. That is one more reason to prefer it.
+
+Finally, find out what persists the ruleset — `systemctl is-active iptables
+nftables firewalld`, then `/etc/sysconfig/iptables` or the equivalent — and
+leave that file to whoever owns it. An `-I` rule is gone at the next reboot,
+which is the right behaviour while testing and the wrong one afterwards.
+
 ## Outbound policy of the stack's containers
 
 Only two containers have a route to the internet: the **API** (network

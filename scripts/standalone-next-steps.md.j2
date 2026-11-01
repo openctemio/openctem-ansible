@@ -50,16 +50,10 @@ here and prints file names, never values, so no password is created on the
 machine that rendered this directory or carried it over. It is safe to re-run:
 an existing secret is kept.
 
-It writes every file mode 0400 owned by root, and two of them are read by a
-container running as its own user, which root-owned 0400 denies. Hand those
-two over, by number, because the names do not exist on this host:
-
-```sh
-sudo chown 999:1000 {{ openctem_secrets_dir }}/redis.conf
-sudo chown 999:999  {{ openctem_secrets_dir }}/db_superuser_password
-```
-
-Skip this and Redis restarts in a loop, saying nothing about permissions.
+It writes every file mode 0400 owned by root, then hands `redis.conf` and
+`db_superuser_password` to the numeric ids that open them from inside a
+container. Those two would otherwise be unreadable there, and Redis would
+restart in a loop without ever mentioning permissions.
 {% if openctem_ingress == 'cloudflared' %}
 
 The tunnel token is yours to place, and this script never touches it:
@@ -77,13 +71,13 @@ first start, or the signer restarts in a loop on
 `signer.pem: no such file or directory`.
 
 ```sh
-sudo docker compose run --rm --no-deps -T \
-    signer keygen -out /var/lib/openctem-signer/keys/signer.pem
+sudo scripts/openctem-signer-key
 ```
 
 It prints a key id and the PUBLIC key; record both. The private key stays in
 the `signer-keys` volume, is never mounted into the API, and leaves this host
-only inside an encrypted backup.
+only inside an encrypted backup. Re-running keeps an existing key: replacing
+it would orphan every signature already made with the old one.
 
 ## 5. Start
 
@@ -106,7 +100,7 @@ fixes it without making anything executable.
 ## 6. The first administrator
 
 ```sh
-sudo docker compose run --rm --no-deps bootstrap-admin \
+sudo scripts/openctem-bootstrap-admin \
     -email=admin@example.com -backup-email=breakglass@example.com
 ```
 

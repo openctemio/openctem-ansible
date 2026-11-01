@@ -288,7 +288,8 @@ happens at the boundary instead of on the server.
 | `neither cosign nor docker is available` | install cosign 3 on the build host, or Docker so the script can run the pinned cosign image |
 | `unauthorized ... action: push` while copying | the account can pull but not push to that project; nothing is written, so it is safe to fix the rights and re-run |
 | Gateway container starts and exits immediately | only `compose.yml` was copied; `releases/<version>/gateway/` is missing |
-| `signer.pem: no such file or directory`, signer restarting | the signer key was never created; `openctem-secrets` does not write it |
+| `signer.pem: no such file or directory`, signer restarting | the signer key was never created; run `scripts/openctem-signer-key` |
+| `curl` connects to the published port, then times out with 0 bytes | the host's own egress policy drops the proxy's connection to the container; see [FIREWALL.md](FIREWALL.md#the-opposite-caveat-a-host-egress-allowlist) |
 | Redis restarting, no error about permissions | `secrets/redis.conf` is still root-owned 0400; `chown 999:1000` it |
 | `db-roles`: `Permission denied` on `/bootstrap/least-privilege-roles.sql` | the directory arrived without world-read; `chmod -R a+rX <root>/releases` |
 | `compose.yml` still names `ghcr.io` or `docker.io` | rendered without the mirror variables; re-render, or rewrite with `scripts/compose-use-mirror.sh` |
