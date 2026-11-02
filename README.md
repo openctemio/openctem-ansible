@@ -633,6 +633,28 @@ mode when upgrading an installation that already signed jobs. Bootstrap the
 ledger (`docs/architecture/job-signing.md`, "Scope ledger" in the OpenCTEM
 repository), then set `openctem_signer_ledger: enforce`.
 
+**Feed relay.** With feed relay the OpenCTEM API makes no outbound feed
+requests: a platform-owned shared sensor downloads the signed feed files from
+allowlisted https origins (GET only) and uploads them. This kit installs no
+sensor (see "Sensors are not installed here"), so it has no sensor variables
+and no `-feed-relay` step: the sensor runs elsewhere and relays by default
+when it is a shared sensor with a pinned job-signing key
+(`SENSOR_FEED_RELAY=0` turns it off there; that is host policy and only
+narrows). The kit's only part is the signer's allowlist:
+`openctem_sensor_feed_relay_origins` (default `[]`, full https download
+prefixes, matched exactly by the signer, such as
+`https://mirror.example.com/vulnfeed-bundles/releases/latest/download` for a
+mirror whose `VULNFEED_BASE_URL` is
+`https://mirror.example.com/vulnfeed-bundles/releases`). When set, the kit
+renders `SIGNER_FEED_ORIGINS` on the signer container as the official origins
+(`openctem_feed_relay_official_origins`) followed by these: a set
+`SIGNER_FEED_ORIGINS` replaces the signer's built-in official list. Add a mirror there and in that sensor's
+`SENSOR_FEED_RELAY_ORIGINS`; an origin missing on either side is refused. A
+new database created by this kit does not store relay mode (that needs
+`bootstrap-admin sensor-token ... -feed-relay` with a bundled sensor), and an
+existing installation stays direct because its feed delivery setting already
+exists. Choose the delivery mode in the console.
+
 **Key backup.** Losing the key makes every paired sensor refuse new jobs; a
 leaked key lets its holder sign any job. So the key is backed up only
 encrypted:

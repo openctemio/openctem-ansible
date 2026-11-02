@@ -47,6 +47,20 @@ openctem_job_signer: true
 #   enforce  refuses jobs outside the scope people approved. Set it after the
 #            ledger import.
 openctem_signer_ledger: audit
+# Feed relay (the platform makes no outbound feed requests; a platform-owned
+# shared sensor downloads signed feed files and uploads them). The kit installs
+# no sensor, so this is only the signer's side: extra https origins (a mirror)
+# the relay sensor may fetch, on top of the official ones, rendered into the
+# signer's allowlist (SIGNER_FEED_ORIGINS). The same list goes into that
+# sensor's SENSOR_FEED_RELAY_ORIGINS on its own host. Scheme and host(:port)
+# only, https. Empty (default): official origins only.
+openctem_sensor_feed_relay_origins: []
+# The official feed origins (the signer's built-in list). A set
+# SIGNER_FEED_ORIGINS replaces that list, so the kit always renders these
+# first and the extra origins after them. Not meant to be changed.
+openctem_feed_relay_official_origins:
+  - https://github.com/openctemio/vulnfeed-bundles/releases/latest/download
+  - https://github.com/openctemio/openctem/releases/latest/download
 
 # --- Sizing: 4 vCPU / 7 GB host, ~1.5 GB left to the OS ------------------------------
 openctem_mem_postgres: 2g

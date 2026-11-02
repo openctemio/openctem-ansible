@@ -30,3 +30,25 @@
       openctem_signer_ledger must be audit, enforce or off.
     quiet: true
   when: openctem_api_env is mapping
+
+# Extra feed origins widen what the signer lets the relay sensor fetch: each one
+# must be an https origin (scheme and host, optional port), never a path or a
+# comma-joined string.
+- name: Feed relay origins are https origins
+  ansible.builtin.assert:
+    that:
+      - openctem_sensor_feed_relay_origins is sequence
+      - openctem_sensor_feed_relay_origins is not string
+      - >-
+        openctem_sensor_feed_relay_origins
+        | reject('match', '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$')
+        | list | length == 0
+      - >-
+        openctem_sensor_feed_relay_origins
+        | select('search', '/\\.\\.?(/|$)')
+        | list | length == 0
+    fail_msg: >-
+      openctem_sensor_feed_relay_origins must be a list of full https download prefixes such as
+      https://mirror.example.com/vulnfeed-bundles/releases/latest/download (matched exactly by the
+      signer; no query, comma, dot segments or http).
+    quiet: true
