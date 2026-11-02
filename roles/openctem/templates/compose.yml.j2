@@ -459,6 +459,9 @@ services:
 {% if openctem_signer_ledger | length > 0 %}
       SIGNER_LEDGER: {{ openctem_signer_ledger }}
 {% endif %}
+{% if openctem_sensor_feed_relay_origins | length > 0 %}
+      SIGNER_FEED_ORIGINS: {{ (openctem_feed_relay_official_origins + openctem_sensor_feed_relay_origins) | join(',') | to_json }}
+{% endif %}
     volumes:
       - signer-keys:/var/lib/openctem-signer/keys
       - signer-state:/var/lib/openctem-signer/state

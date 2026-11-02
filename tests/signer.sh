@@ -27,6 +27,14 @@ no -e openctem_job_signer=false -e '{"openctem_api_env":{"SIGNER_DANGEROUS_ALLOW
 # Ledger mode.
 ok -e openctem_signer_ledger=enforce
 no -e openctem_signer_ledger=maybe
+# Feed relay origins: https origins only.
+ok -e '{"openctem_sensor_feed_relay_origins":["https://mirror.example.com","https://m2.example.com:8443"]}'
+no -e '{"openctem_sensor_feed_relay_origins":["http://mirror.example.com"]}'
+ok -e '{"openctem_sensor_feed_relay_origins":["https://mirror.example.com/vulnfeed/latest/download"]}'
+no -e '{"openctem_sensor_feed_relay_origins":["https://mirror.example.com/feeds?x=1"]}'
+no -e '{"openctem_sensor_feed_relay_origins":["https://mirror.example.com/a/../b"]}'
+no -e '{"openctem_sensor_feed_relay_origins":["https://a.example.com,https://b.example.com"]}'
+no -e '{"openctem_sensor_feed_relay_origins":"https://mirror.example.com"}'
 
 render() { # render <name> [-e k=v ...]
 	local name="$1"; shift
@@ -36,6 +44,7 @@ render signer
 render nosigner -e openctem_job_signer=false
 render host -e openctem_admin_site=host -e openctem_admin_host=admin.example.com
 render enforce -e openctem_signer_ledger=enforce
+render relay -e '{"openctem_sensor_feed_relay_origins":["https://mirror.example.com","https://m2.example.com:8443"]}'
 
 python3 -I - "$work" <<'PY'
 import sys, yaml
@@ -58,6 +67,8 @@ assert "ADMIN_PUBLIC_URL" not in api["environment"]
 c = load("nosigner")
 assert "signer" not in c["services"] and "SIGNER_SOCKET" not in c["services"]["api"]["environment"]
 assert load("enforce")["services"]["signer"]["environment"]["SIGNER_LEDGER"] == "enforce"
+assert "SIGNER_FEED_ORIGINS" not in s["environment"]
+assert load("relay")["services"]["signer"]["environment"]["SIGNER_FEED_ORIGINS"] == "https://github.com/openctemio/vulnfeed-bundles/releases/latest/download,https://github.com/openctemio/openctem/releases/latest/download,https://mirror.example.com,https://m2.example.com:8443"
 assert load("host")["services"]["api"]["environment"]["ADMIN_PUBLIC_URL"] == "https://admin.example.com"
 PY
 echo "signer tests passed"
