@@ -131,7 +131,7 @@ openctem_trusted_proxies:
 
 openctem_admin_site: host
 openctem_admin_host: admin.example.com
-openctem_admin_port: 8443
+openctem_admin_port: 8443             # only read when admin_site is `port`
 openctem_admin_allowed_cidrs:
   - 127.0.0.0/8
   - '::1/128'
@@ -151,6 +151,13 @@ ansible-playbook scripts/render-standalone.yml \
 takes the client address from `X-Forwarded-For` only when the peer that sent it
 is listed here. Leave it wrong and every client address in the logs is the
 proxy's own — an access trail that records nothing.
+
+It also decides who reaches the console. `openctem_admin_allowed_cidrs` is
+matched against that same resolved address, so an unlisted proxy makes every
+request look like it came from the proxy itself. Put the proxy's address in a
+range that is allowed and the check passes for everyone behind it; put it in
+one that is not and it fails for everyone, administrators included. Neither
+failure is announced anywhere.
 
 Ansible does not run natively on Windows (`os.get_blocking` is a Unix API, so
 the CLI exits with `OSError: [WinError 87]`). Render on Linux, or in WSL.
@@ -306,9 +313,62 @@ proxy_set_header Host $host;
 When the proxy runs on another host, the port carries plain HTTP across the
 network, so the network itself is the only thing protecting it.
 
-In `host` admin mode the console is its own virtual host
-(`openctem_admin_host`, on `openctem_admin_port`), not a path on the
-application site: the application port answers 404 for `/api/v1/admin`.
+### Which port is which
+
+Three separate things get called "the port", and only the first of them is
+yours to publish:
+
+```mermaid
+flowchart TB
+  b1(["browser<br>https://ctem.example.com"])
+  b2(["browser<br>https://admin.example.com"])
+  b1 --> proxy
+  b2 --> proxy
+  subgraph server["Server"]
+    proxy["TLS proxy, :443<br>Host passed through"]
+    subgraph docker["Docker"]
+      pub["published :8080"]
+      caddy{"gateway: Caddy on :80<br>one listener, both sites"}
+      web["web :3000"]
+      con["console :3000"]
+      api["api :8080"]
+      pub --> caddy
+      caddy -->|"Host: ctem.example.com"| web
+      caddy -->|"that site, /api/*"| api
+      caddy -->|"Host: admin.example.com"| con
+    end
+    proxy --> pub
+  end
+```
+
+| Layer | Port | Reachable from |
+|---|---|---|
+| published on the host | `openctem_loopback_bind:openctem_loopback_port` | the proxy, and whatever else the bind address admits |
+| Caddy, inside the gateway | `:80`, serving both sites | nothing outside that container |
+| the services behind it | `web:3000`, `console:3000`, `api:8080` | the gateway only, over an internal network |
+
+The services' ports are the gateway's business, not the firewall's: they are
+never published and belong to container names that resolve only on Docker's
+internal networks. That the API happens to listen on 8080 inside, and that
+`openctem_loopback_port` above is also 8080, is a coincidence of two unrelated
+layers.
+
+So **one published port carries both sites**. In `host` admin mode the console
+is a second Caddy site on that same `:80`, told apart from the application by
+`Host` alone, and `openctem_admin_port` is not read at all. A firewall cannot
+separate them either: what keeps the console off the wrong network is
+`openctem_admin_allowed_cidrs`, checked inside Caddy, and therefore only as
+good as `openctem_trusted_proxies`.
+
+`openctem_admin_site: port` buys the separation back. Caddy opens a second
+listener on `openctem_admin_port` inside the container, compose publishes it,
+and the console can then be filtered at the network layer independently of the
+application — at the cost of a second port to publish and to protect. The CIDR
+check runs in both modes; the mode only decides whether a firewall can act on
+it as well.
+
+Either way the console is never a path on the application site: the
+application host answers 404 for `/api/v1/admin`.
 
 ## Stopping and starting
 
@@ -385,7 +445,7 @@ happens at the boundary instead of on the server.
 | `db-roles`: `Permission denied` on `/bootstrap/least-privilege-roles.sql` | the directory arrived without world-read; `chmod -R a+rX <root>/releases` |
 | `compose.yml` still names `ghcr.io` or `docker.io` | rendered without the mirror variables; re-render, or rewrite with `scripts/compose-use-mirror.sh` |
 | Every client address in the logs is the proxy's | `openctem_trusted_proxies` does not list the proxy |
-| Console unreachable | wrong virtual host, or the client is outside `openctem_admin_allowed_cidrs` |
+| Console unreachable, or 403 | wrong virtual host; or the resolved client address is outside `openctem_admin_allowed_cidrs`, which `openctem_trusted_proxies` decides |
 | `OSError: [WinError 87]` from `ansible-playbook` | Ansible does not run natively on Windows; render on Linux or WSL |
 | `x509: certificate signed by unknown authority` | the CA is not in `/etc/docker/certs.d/<registry>/ca.crt` |
 
