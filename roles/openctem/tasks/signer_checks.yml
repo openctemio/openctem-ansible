@@ -30,3 +30,20 @@
       openctem_signer_ledger must be audit, enforce or off.
     quiet: true
   when: openctem_api_env is mapping
+
+# Extra feed origins widen what the signer lets the relay sensor fetch: each one
+# must be an https origin (scheme and host, optional port), never a path or a
+# comma-joined string.
+- name: Feed relay origins are https origins
+  ansible.builtin.assert:
+    that:
+      - openctem_sensor_feed_relay_origins is sequence
+      - openctem_sensor_feed_relay_origins is not string
+      - >-
+        openctem_sensor_feed_relay_origins
+        | reject('match', '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$')
+        | list | length == 0
+    fail_msg: >-
+      openctem_sensor_feed_relay_origins must be a list of https origins such as https://mirror.example.com
+      (scheme and host, optional port; no path, no comma, no http).
+    quiet: true
