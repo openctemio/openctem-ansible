@@ -27,8 +27,7 @@ openctem_images: >-
 #                    X-Real-IP only from the gateway and web)
 # data    (internal) api, migrate, db-roles <-> postgres, redis
 # egress_api         api -> internet (feeds, OIDC keys for CI, SMTP, integrations)
-openctem_net_origin: 172.30.80
-openctem_net_data: 172.30.82
+# (openctem_net_origin, openctem_net_data: roles/openctem_common, so the mail relay checks see every subnet)
 # (openctem_net_egress_api: roles/openctem_common, the firewall role needs it too)
 
 # --- Job signer (signed sensor jobs, docs/architecture/job-signing.md) ------------

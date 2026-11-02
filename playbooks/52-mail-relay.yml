@@ -1,0 +1,19 @@
+---
+# Optional send-only mail relay for the platform e-mail (docs/MAIL-RELAY.md).
+# Opt-in twice: openctem_mail_relay: true in your inventory, and
+# -e apply_mail_relay=true. Without both this play does nothing. It runs BEFORE
+# the OpenCTEM stage the first time, because the platform joins the relay's
+# submission network. Rehearse with --check --diff first.
+- name: Mail relay
+  hosts: openctem
+  become: true
+  gather_facts: true
+  tags: [mail_relay]
+  pre_tasks:
+    - name: Skip unless the relay is enabled and applied
+      ansible.builtin.meta: end_play
+      when: not (apply_mail_relay | default(false) | bool) or not (openctem_mail_relay | default(false) | bool)
+    - name: Check the target OS
+      ansible.builtin.import_tasks: tasks/assert-os.yml
+  roles:
+    - role: mail_relay

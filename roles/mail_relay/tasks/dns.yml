@@ -1,0 +1,19 @@
+---
+- name: DNS records file
+  ansible.builtin.template:
+    src: dns-records.txt.j2
+    dest: "{{ mail_relay_root }}/dns-records.txt"
+    owner: root
+    group: root
+    mode: '0644'
+  when: not ansible_check_mode
+
+- name: What to publish and what to give the platform
+  ansible.builtin.debug:
+    msg:
+      - "Publish the DNS records in {{ mail_relay_root }}/dns-records.txt (SPF{{ ', DKIM' if mail_relay_dkim | bool }}, DMARC, and the PTR record)."
+      - "Platform e-mail: server {{ openctem_mail_relay_alias }}, port 587, STARTTLS on, no login, sender {{ openctem_mail_relay_from }}."
+      - >-
+        The platform trusts the relay through the CA certificate {{ openctem_mail_relay_ca_file }}
+        ({{ mail_relay_ca_fp.stdout | default('fingerprint after the first run') }}).
+  when: not ansible_check_mode

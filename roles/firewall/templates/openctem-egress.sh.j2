@@ -21,7 +21,7 @@ set -euo pipefail
 FWD=OPENCTEM-EGRESS
 INP=OPENCTEM-EGRESS-IN
 # Source networks: outbound-only networks of the stack.
-SOURCES=({{ ([openctem_net_egress_api ~ '.0/24'] + ([cloudflared_net_egress ~ '.0/24'] if openctem_ingress == 'cloudflared' else []) + ([openctem_net_tunnel ~ '.0/24'] if openctem_ingress == 'loopback' else [])) | join(' ') }})
+SOURCES=({{ ([openctem_net_egress_api ~ '.0/24'] + ([cloudflared_net_egress ~ '.0/24'] if openctem_ingress == 'cloudflared' else []) + ([openctem_net_tunnel ~ '.0/24'] if openctem_ingress == 'loopback' else []) + ([openctem_net_mail_egress ~ '.0/24'] if openctem_mail_relay | bool else [])) | join(' ') }})
 # Operator-approved destinations: cidr|proto|port (port may be empty = any).
 ALLOW=({% for a in openctem_egress_allow %}'{{ a.cidr }}|{{ a.proto | default('tcp') }}|{{ a.port | default('') }}' {% endfor %})
 DNS_FROM_HOST={{ 'yes' if openctem_egress_allow_host_dns | bool else 'no' }}

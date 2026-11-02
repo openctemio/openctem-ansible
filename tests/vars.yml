@@ -5,3 +5,7 @@ openctem_version: v0.10.1
 openctem_ingress: cloudflared
 admin_cidrs: [192.0.2.0/24]
 backup_age_recipient: ''
+# Mail relay (off unless a test sets openctem_mail_relay=true).
+mail_relay_hostname: mail.example.com
+mail_relay_sender_domains: [example.com]
+openctem_mail_relay_from: noreply@example.com

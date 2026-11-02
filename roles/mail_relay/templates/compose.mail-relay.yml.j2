@@ -1,0 +1,89 @@
+# {{ ansible_managed }}
+# Send-only mail relay (roles/mail_relay, docs/MAIL-RELAY.md). Its own compose
+# project: the platform stack only joins its submission network.
+#   submit  internal (no route out), the API <-> the relay, fixed address .10
+#   egress  the relay -> the internet or your smarthost, nothing else joins it
+services:
+  mail-relay:
+    image: {{ mail_relay_image_ref }}
+    hostname: {{ mail_relay_hostname }}
+    environment:
+      ALLOWED_SENDER_DOMAINS: {{ mail_relay_sender_domains | join(' ') | to_json }}
+      POSTFIX_myhostname: {{ mail_relay_hostname | to_json }}
+      # Only the submission network may send. Everything else is rejected, so
+      # this can never be an open relay.
+      POSTFIX_mynetworks: {{ (openctem_net_mail_submit ~ '.0/24') | to_json }}
+      POSTFIX_smtpd_client_restrictions: permit_mynetworks,reject
+      POSTFIX_smtpd_relay_restrictions: permit_mynetworks,reject_unauth_destination
+      POSTFIX_message_size_limit: "{{ mail_relay_message_size_limit }}"
+      # Submission needs TLS (the kit's CA); no plain-text sessions are accepted.
+      POSTFIX_smtpd_tls_security_level: encrypt
+      POSTFIX_smtpd_tls_cert_file: /etc/postfix/tls/server.crt
+      POSTFIX_smtpd_tls_key_file: /etc/postfix/tls/server.key
+      POSTFIX_smtpd_tls_protocols: ">=TLSv1.2"
+      POSTFIX_smtp_tls_security_level: {{ 'encrypt' if mail_relay_smarthost | length > 0 else 'may' }}
+{% if mail_relay_smarthost | length > 0 %}
+      RELAYHOST: {{ ('[' ~ mail_relay_smarthost.rsplit(':', 1)[0] ~ ']:' ~ mail_relay_smarthost.rsplit(':', 1)[1]) | to_json }}
+      RELAYHOST_TLS_LEVEL: encrypt
+{% endif %}
+{% if mail_relay_dkim | bool %}
+      DKIM_SELECTOR: {{ mail_relay_dkim_selector | to_json }}
+{% endif %}
+{% if mail_relay_smarthost_login | bool %}
+    # RELAYHOST_USERNAME, RELAYHOST_PASSWORD
+    env_file:
+      - {{ mail_relay_smarthost_env_file }}
+{% endif %}
+    volumes:
+      - {{ mail_relay_root }}/tls/server.crt:/etc/postfix/tls/server.crt:ro
+      - {{ mail_relay_root }}/tls/server.key:/etc/postfix/tls/server.key:ro
+      - queue:/var/spool/postfix
+{% if mail_relay_dkim | bool %}
+{% for d in mail_relay_sender_domains %}
+      - {{ openctem_secrets_dir }}/mail_relay_dkim/{{ d }}.private:/etc/opendkim/keys/{{ d }}.private:ro
+{% endfor %}
+{% endif %}
+    healthcheck:
+      # The submission port answers a greeting.
+      test: ["CMD-SHELL", "nc -z 127.0.0.1 587"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER, KILL, SETGID, SETUID, NET_BIND_SERVICE]
+    security_opt:
+      - no-new-privileges:true
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          pids: 256
+          memory: {{ mail_relay_mem }}
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      submit:
+        ipv4_address: {{ openctem_net_mail_submit }}.10
+        aliases: [{{ openctem_mail_relay_alias }}]
+      egress: {}
+
+volumes:
+  queue: {}
+
+networks:
+  submit:
+    name: {{ openctem_mail_relay_network }}
+    internal: true
+    ipam:
+      config:
+        - subnet: {{ openctem_net_mail_submit }}.0/24
+  egress:
+    driver_opts:
+      com.docker.network.bridge.enable_icc: "false"
+    ipam:
+      config:
+        - subnet: {{ openctem_net_mail_egress }}.0/24

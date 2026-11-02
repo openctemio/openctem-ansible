@@ -52,11 +52,35 @@ openctem_wal_archive: false  # noqa: var-naming[no-role-prefix]
 openctem_wal_spool_dir: /var/lib/openctem-wal-spool  # noqa: var-naming[no-role-prefix]
 openctem_wal_archive_timeout: 300  # noqa: var-naming[no-role-prefix]
 
+openctem_net_origin: 172.30.80  # noqa: var-naming[no-role-prefix]
+openctem_net_data: 172.30.82  # noqa: var-naming[no-role-prefix]
+
 # Outbound-only networks (the only stack networks with a route to the
 # internet): the API's and the tunnel connector's. The firewall role's egress
 # policy is keyed on these subnets.
 openctem_net_egress_api: 172.30.84  # noqa: var-naming[no-role-prefix]
 cloudflared_net_egress: 172.30.83  # noqa: var-naming[no-role-prefix]
+
+# Optional send-only mail relay for the platform e-mail (roles/mail_relay,
+# docs/MAIL-RELAY.md). Off by default. When true the API joins the relay's
+# internal submission network and the platform e-mail is seeded to use it.
+openctem_mail_relay: false  # noqa: var-naming[no-role-prefix]
+# Submission network (internal: no route out; only the API and the relay are
+# on it) and the relay's own outbound network (internet / smarthost only).
+openctem_net_mail_submit: 172.30.86  # noqa: var-naming[no-role-prefix]
+openctem_net_mail_egress: 172.30.87  # noqa: var-naming[no-role-prefix]
+# Compose project of the relay (its own stack) and the name of its submission
+# network, which the platform compose declares as external.
+openctem_mail_relay_project: openctem-mail  # noqa: var-naming[no-role-prefix]
+openctem_mail_relay_network: "{{ openctem_mail_relay_project }}_submit"  # noqa: var-naming[no-role-prefix]
+# The relay's name on the submission network: the name on its TLS certificate.
+openctem_mail_relay_alias: mail-relay  # noqa: var-naming[no-role-prefix]
+# The platform's sender address through the relay; its domain must be one of
+# mail_relay_sender_domains. Required when openctem_mail_relay is true.
+openctem_mail_relay_from: ''  # noqa: var-naming[no-role-prefix]
+# The relay's own CA certificate (public), created by roles/mail_relay on the
+# host and mounted read-only where the one-shot tools need it.
+openctem_mail_relay_ca_file: "{{ openctem_secrets_dir }}/mail_relay_ca/ca.crt"  # noqa: var-naming[no-role-prefix]
 
 # Outbound policy of the stack's containers (roles/firewall, docs/FIREWALL.md):
 #   open        no restriction beyond the networks (the API can reach any address)
