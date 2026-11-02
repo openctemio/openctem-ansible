@@ -41,9 +41,14 @@
       - openctem_sensor_feed_relay_origins is not string
       - >-
         openctem_sensor_feed_relay_origins
-        | reject('match', '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?$')
+        | reject('match', '^https://[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:[0-9]{1,5})?(/[A-Za-z0-9._~/-]*)?$')
+        | list | length == 0
+      - >-
+        openctem_sensor_feed_relay_origins
+        | select('search', '/\\.\\.?(/|$)')
         | list | length == 0
     fail_msg: >-
-      openctem_sensor_feed_relay_origins must be a list of https origins such as https://mirror.example.com
-      (scheme and host, optional port; no path, no comma, no http).
+      openctem_sensor_feed_relay_origins must be a list of full https download prefixes such as
+      https://mirror.example.com/vulnfeed-bundles/releases/latest/download (matched exactly by the
+      signer; no query, comma, dot segments or http).
     quiet: true

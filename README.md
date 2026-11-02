@@ -640,9 +640,14 @@ and no `-feed-relay` step: the sensor runs elsewhere and relays by default
 when it is a shared sensor with a pinned job-signing key
 (`SENSOR_FEED_RELAY=0` turns it off there; that is host policy and only
 narrows). The kit's only part is the signer's allowlist:
-`openctem_sensor_feed_relay_origins` (default `[]`, https origins such as
-`https://mirror.example.com`) renders `SIGNER_FEED_ORIGINS` on the signer
-container. Add a mirror there and in that sensor's
+`openctem_sensor_feed_relay_origins` (default `[]`, full https download
+prefixes, matched exactly by the signer, such as
+`https://mirror.example.com/vulnfeed-bundles/releases/latest/download` for a
+mirror whose `VULNFEED_BASE_URL` is
+`https://mirror.example.com/vulnfeed-bundles/releases`). When set, the kit
+renders `SIGNER_FEED_ORIGINS` on the signer container as the official origins
+(`openctem_feed_relay_official_origins`) followed by these: a set
+`SIGNER_FEED_ORIGINS` replaces the signer's built-in official list. Add a mirror there and in that sensor's
 `SENSOR_FEED_RELAY_ORIGINS`; an origin missing on either side is refused. A
 new database created by this kit does not store relay mode (that needs
 `bootstrap-admin sensor-token ... -feed-relay` with a bundled sensor), and an
