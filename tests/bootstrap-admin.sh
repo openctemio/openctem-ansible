@@ -39,7 +39,10 @@ grep -q '! -t 0' "$w" || fail "wrapper lost its terminal requirement"
 # Secrets: the owner password reaches bootstrap-admin.env only, never api.env.
 mkdir -m 0700 "$tmp/sec"
 sed "s|^d='.*'|d='$tmp/sec'|" "$r/scripts/openctem-secrets" > "$tmp/s.sh"
-sh "$tmp/s.sh" > /dev/null
+mkdir -p "$tmp/bin"
+printf '#!/bin/sh\nexit 0\n' > "$tmp/bin/chown" # not root here; the ids are checked in secrets-fingerprint.sh
+chmod +x "$tmp/bin/chown"
+PATH="$tmp/bin:$PATH" sh "$tmp/s.sh" > /dev/null
 pw="$(cat "$tmp/sec/db_migrate_password")"
 grep -qx "DB_MIGRATE_PASSWORD=$pw" "$tmp/sec/bootstrap-admin.env" || fail "bootstrap-admin.env lacks the owner password"
 grep -q '^APP_ENCRYPTION_KEY=' "$tmp/sec/bootstrap-admin.env" || fail "bootstrap-admin.env lacks APP_ENCRYPTION_KEY"
