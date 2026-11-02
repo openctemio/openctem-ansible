@@ -22,6 +22,9 @@
 #                          The roles then render a `console` service and the gateway's console site
 #                          (openctem_admin_site). Set by scripts/vendor-release.sh; v0.10.1 is the
 #                          first release with published images that has it (v0.10.0 was never published).
+#   feed_proxy: true       the API knows OPENCTEM_HTTPSEC_FEED_PROXY / _FEED_NO_PROXY (openctem_feed_proxy,
+#                          openctem_feed_no_proxy, <secrets>/feed_proxy_url); older APIs refuse to start
+#                          with them, so the preflight refuses the settings for a release without it.
 openctem_releases:
   v0.17.0:
     admin_plane: true

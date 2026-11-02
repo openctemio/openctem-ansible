@@ -355,6 +355,12 @@ services:
 {% if openctem_admin_audit_sink | length > 0 and openctem_admin_audit_sink_head_interval | length > 0 %}
       ADMIN_AUDIT_SINK_HEAD_INTERVAL: {{ openctem_admin_audit_sink_head_interval | to_json }}
 {% endif %}
+{% if openctem_feed_proxy | length > 0 %}
+      OPENCTEM_HTTPSEC_FEED_PROXY: {{ openctem_feed_proxy | to_json }}
+{% endif %}
+{% if openctem_feed_no_proxy | length > 0 %}
+      OPENCTEM_HTTPSEC_FEED_NO_PROXY: {{ openctem_feed_no_proxy | to_json }}
+{% endif %}
 {% for key, value in openctem_api_env | dictsort %}
       {{ key }}: {{ value | string | to_json }}
 {% endfor %}

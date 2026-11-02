@@ -1,0 +1,19 @@
+---
+# Platform feed proxy settings (defaults/main.yml, "Platform feed proxy").
+- name: The feed proxy is a proxy URL without credentials, on a release that knows it
+  ansible.builtin.assert:
+    that:
+      - openctem_feed_proxy is string
+      - openctem_feed_no_proxy is string
+      - >-
+        openctem_feed_proxy | length == 0
+        or openctem_feed_proxy is match('^https?://[A-Za-z0-9.\-]+(:[0-9]{1,5})?/?$')
+        or openctem_feed_proxy is match('^https?://\[[0-9A-Fa-f:.]+\](:[0-9]{1,5})?/?$')
+      - openctem_feed_no_proxy is match('^[A-Za-z0-9.*,:\-\[\] ]*$')
+      - (openctem_feed_proxy | length == 0 and openctem_feed_no_proxy | length == 0)
+        or (openctem_releases[openctem_version].feed_proxy | default(false) | bool)
+    fail_msg: >-
+      openctem_feed_proxy must be http(s)://host[:port] with no path and no credentials (a proxy password
+      goes in <openctem_secrets_dir>/feed_proxy_url on the server); openctem_feed_no_proxy is a comma-separated
+      host list. Both need an OpenCTEM release flagged feed_proxy in versions.yml ({{ openctem_version }} is not):
+      an older API refuses to start with them.

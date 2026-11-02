@@ -248,7 +248,9 @@ The same stage can also close the stack's **outbound** side: with
 `openctem_signup_mode: open`) the API and the tunnel connector cannot reach
 private, link-local/metadata, CGNAT, loopback or host-local addresses, only the
 internet. Operator-approved internal destinations (an internal SMTP relay, an
-on-premises Jira) go in `openctem_egress_allow`. See
+on-premises Jira) go in `openctem_egress_allow`. Inside a corporate network
+whose only way out is an HTTPS proxy, `openctem_feed_proxy` sends the
+platform's own feeds through it (nothing an organization configures). See
 [docs/FIREWALL.md](docs/FIREWALL.md#outbound-policy-of-the-stacks-containers).
 
 ### 3.8 OpenCTEM
