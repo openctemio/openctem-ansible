@@ -8,11 +8,16 @@ set -euo pipefail
 script="${1:?usage: $0 <rendered openctem-secrets>}"
 tmp="$(mktemp -d)"
 trap 'find "$tmp" -delete' EXIT
+# The script chowns two files to container users; the test is not root, so a stub
+# records the calls (the real ids are checked at the end).
+mkdir -p "$tmp/bin"
+printf '#!/bin/sh\necho "$*" >> "%s/chown.log"\n' "$tmp" > "$tmp/bin/chown"
+chmod +x "$tmp/bin/chown"
 run() { # run <secrets dir>
 	mkdir -p "$1"
 	chmod 0700 "$1"
 	sed "s|^d='.*'|d='$1'|" "$script" > "$tmp/s.sh"
-	sh "$tmp/s.sh" > "$tmp/out.txt"
+	PATH="$tmp/bin:$PATH" sh "$tmp/s.sh" > "$tmp/out.txt"
 }
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
@@ -36,4 +41,6 @@ grep -q "^FINGERPRINT_KEY=$(cat "$tmp/old/app_encryption_key")\$" "$tmp/old/api.
 # Second run: no change; a stored fingerprint key is never replaced.
 run "$tmp/old"
 [ ! -s "$tmp/out.txt" ] || fail "second run changed something"
+grep -q '^999:1000 .*/redis.conf$' "$tmp/chown.log" || fail "redis.conf is not chowned to 999:1000"
+grep -q '^999:999 .*/db_superuser_password$' "$tmp/chown.log" || fail "db_superuser_password is not chowned to 999:999"
 echo "secrets-fingerprint: ok"

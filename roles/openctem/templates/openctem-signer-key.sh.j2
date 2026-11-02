@@ -1,0 +1,41 @@
+#!/bin/bash
+# {{ ansible_managed }}
+# Create the job signer's key. The signer will not start without it, and
+# nothing else creates it: it is not one of the files openctem-secrets
+# writes, so a directory deployed without this step has a signer that
+# restarts for ever on `signer.pem: no such file or directory`.
+#
+#   sudo openctem-signer-key
+#
+# Safe to re-run. An existing key is kept: replacing it would orphan every
+# signature already made with the old one.
+set -eu
+[ "$(id -u)" = 0 ] || { echo "run with sudo" >&2; exit 1; }
+# Compose is always called with an explicit project and file list, never
+# from the working directory, and never for another stack's project.
+ROOT='{{ openctem_root }}'
+PROJECT='{{ openctem_project }}'
+case "$PROJECT" in
+''|{{ openctem_protected_projects | join('|') }}) echo "refusing compose project '$PROJECT'" >&2; exit 64 ;;
+esac
+compose_files=(-f "$ROOT/compose.yml")
+[ -f "$ROOT/compose.cloudflared.yml" ] && compose_files+=(-f "$ROOT/compose.cloudflared.yml")
+dc() { docker compose -p "$PROJECT" --project-directory "$ROOT" "${compose_files[@]}" "$@"; }
+
+# The volume has to exist before anything can look inside it, and `create`
+# makes it with the project's labels rather than as a stray.
+dc create --no-recreate signer >/dev/null
+
+# Read the volume through a throwaway container: the key is not readable
+# from the host, which is the point of keeping it in a volume of its own.
+if docker run --rm --network none -v "${PROJECT}_signer-keys:/k:ro" \
+	{{ openctem_postgres_ref }} test -s /k/signer.pem 2>/dev/null; then
+	echo "signer key already present; keeping it"
+	exit 0
+fi
+
+# Prints the key id and the PUBLIC key. Record both: they identify this
+# signer to anything that verifies its output. The private half stays in
+# the volume, is never mounted into the API, and leaves the host only
+# inside an encrypted backup.
+dc run --rm --no-deps -T signer keygen -out /var/lib/openctem-signer/keys/signer.pem

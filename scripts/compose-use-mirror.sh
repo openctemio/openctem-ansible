@@ -60,7 +60,15 @@ after="$(grep -o 'sha256:[0-9a-f]\{64\}' "$file" | sort)"
 # A reference left pointing at a public registry would be pulled from the
 # internet on a host that is not supposed to have any, and the stack would come
 # up looking fine until the day that pull is the one that fails.
-if grep -n '^[[:space:]]*image:.*\(ghcr\.io\|docker\.io\)' "$file"; then
+#
+# Anchored at the registry host, which is everything before the first slash --
+# not matched anywhere in the line. A mirror prefix may legitimately contain
+# the original host: registries are commonly laid out as
+# <registry>/<project>/<original-host>/<path>, which keeps an image's
+# provenance visible, and then every rewritten line still has ghcr.io or
+# docker.io inside it. Searching the whole line fails every one of them, and
+# this script restores the backup over a file it had rewritten correctly.
+if grep -nE '^[[:space:]]*image:[[:space:]]*(ghcr\.io|docker\.io)/' "$file"; then
 	restore "an image: line still points at a public registry"
 fi
 

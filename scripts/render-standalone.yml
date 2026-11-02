@@ -80,6 +80,18 @@
         - {role: openctem, src: http.site.j2, dest: "{{ release_dir }}/gateway/modes/http.site"}
         - {role: openctem, src: openctem-secrets.sh.j2, dest: scripts/openctem-secrets, mode: '0750'}
         - {role: openctem, src: openctem-verify.sh.j2, dest: scripts/openctem-verify, mode: '0750'}
+        - {role: openctem, src: openctem-bootstrap-admin.sh.j2, dest: scripts/openctem-bootstrap-admin, mode: '0750'}
+
+    # The signer's key is not one of the files openctem-secrets writes, and the
+    # signer will not start without it. The Ansible path creates it in
+    # roles/openctem/tasks/signer.yml; a directory running on its own needs the
+    # same thing as a script it can run once.
+    - name: Render the signer key helper
+      ansible.builtin.template:
+        src: "{{ roles_dir }}/openctem/templates/openctem-signer-key.sh.j2"
+        dest: "{{ out_dir }}/scripts/openctem-signer-key"
+        mode: '0750'
+      when: openctem_job_signer | bool
 
     - name: Render the tunnel connector
       ansible.builtin.template:

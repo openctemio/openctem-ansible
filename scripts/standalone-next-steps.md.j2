@@ -49,6 +49,11 @@ Run it on this server, once. It generates the database and session secrets
 here and prints file names, never values, so no password is created on the
 machine that rendered this directory or carried it over. It is safe to re-run:
 an existing secret is kept.
+
+It writes every file mode 0400 owned by root, then hands `redis.conf` and
+`db_superuser_password` to the numeric ids that open them from inside a
+container. Those two would otherwise be unreadable there, and Redis would
+restart in a loop without ever mentioning permissions.
 {% if openctem_ingress == 'cloudflared' %}
 
 The tunnel token is yours to place, and this script never touches it:
@@ -58,13 +63,62 @@ sudo install -o 65532 -g 65532 -m 0400 /path/to/token {{ openctem_secrets_dir }}
 ```
 {% endif %}
 
-## 4. Start
+## 4. The job signer's key
+
+The signer will not start without it, and nothing creates it for you: it is
+not one of the files `openctem-secrets` writes. Create it once, before the
+first start, or the signer restarts in a loop on
+`signer.pem: no such file or directory`.
+
+```sh
+sudo scripts/openctem-signer-key
+```
+
+It prints a key id and the PUBLIC key; record both. The private key stays in
+the `signer-keys` volume, is never mounted into the API, and leaves this host
+only inside an encrypted backup. Re-running keeps an existing key: replacing
+it would orphan every signature already made with the old one.
+
+Do this **before** the first `up`. A signer container created while the key
+was still missing stays unhealthy afterwards, because `up` reuses a container
+whose configuration has not changed and does not re-run its failed start. The
+rest of the stack waits on the signer's health, so everything after it stops
+with `dependency failed to start`. Creating the key at that point is not
+enough; the container has to be replaced:
+
+```sh
+sudo docker compose up -d --force-recreate signer
+sudo docker compose up -d
+```
+
+## 5. Start
 
 ```sh
 sudo docker compose config --quiet      # the file is valid and resolves
 sudo docker compose up -d
 sudo scripts/openctem-verify
 ```
+
+Services come up in order: `postgres`, then `db-roles` (creates the
+least-privilege roles), then `migrate` (the schema), then the application. A
+failure stops everything after it, so read the logs from the top of that list
+down.
+
+`db-roles` ending in `Permission denied` on `/bootstrap/least-privilege-roles.sql`
+means this directory arrived without world-read: the container runs as its own
+user and cannot traverse a 0770 directory. `sudo chmod -R a+rX {{ openctem_root }}/releases`
+fixes it without making anything executable.
+
+## 6. The first administrator
+
+```sh
+sudo scripts/openctem-bootstrap-admin \
+    -email=admin@example.com -backup-email=breakglass@example.com
+```
+
+Run it on the console or an interactive SSH session. The credentials are
+printed once and the service keeps no log of them, so do not redirect the
+output.
 
 {% if openctem_ingress == 'loopback' %}
 The gateway publishes `{{ openctem_loopback_bind | default('127.0.0.1') }}:{{ openctem_loopback_port }}` in plain HTTP, for a TLS
@@ -74,6 +128,28 @@ reverse proxy you run yourself. That proxy owns TLS, must send
 Traffic arrives through the Cloudflare Tunnel connector; the host publishes no
 port at all.
 {% endif %}
+
+## Stopping and starting
+
+```sh
+sudo docker compose restart <service>   # one service
+sudo docker compose up -d               # apply a change, start what is down
+sudo docker compose down                # stop everything, KEEP the volumes
+```
+
+**`docker compose down -v` deletes the volumes**, and that is the whole
+deployment's state: the database, the job signer's key, the gateway's
+configuration, Redis. There is no undo and no warning. After it you are
+installing from scratch — generate the secrets again, create a new signer key,
+and bootstrap the first administrator again, because the old one lived in the
+database that was just removed.
+
+Use it only when wiping this install on purpose. For everything else `down`
+without the flag stops the stack and keeps the data.
+
+A signer key is particularly easy to lose this way: `down -v` removes it, the
+next `up` fails on the signer, and the cycle repeats for as long as `-v` keeps
+being passed.
 
 ## What you are taking on
 
