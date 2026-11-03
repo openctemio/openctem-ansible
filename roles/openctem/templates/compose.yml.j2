@@ -361,8 +361,14 @@ services:
 {% if openctem_feed_no_proxy | length > 0 %}
       OPENCTEM_HTTPSEC_FEED_NO_PROXY: {{ openctem_feed_no_proxy | to_json }}
 {% endif %}
+{% if openctem_mail_relay | bool %}
+      # The relay is on a private address: the API's outbound guard must allow exactly that one address.
+      OPENCTEM_HTTPSEC_ALLOW_PRIVATE_CIDRS: {{ (((openctem_api_env.OPENCTEM_HTTPSEC_ALLOW_PRIVATE_CIDRS | default('')).split(',') | map('trim') | select | list) + [openctem_net_mail_submit ~ '.10/32']) | unique | join(',') | to_json }}
+{% endif %}
 {% for key, value in openctem_api_env | dictsort %}
+{% if not (openctem_mail_relay | bool and key == 'OPENCTEM_HTTPSEC_ALLOW_PRIVATE_CIDRS') %}
       {{ key }}: {{ value | string | to_json }}
+{% endif %}
 {% endfor %}
 {% if openctem_job_signer | bool %}
       SIGNER_SOCKET: /run/openctem-signer/signer.sock
@@ -401,6 +407,9 @@ services:
 {% endif %}
       data: {}
       egress_api: {}
+{% if openctem_mail_relay | bool %}
+      mail_submit: {}
+{% endif %}
     volumes:
       - datastore-tls:/datastore-tls:ro
       - api-data:/app/data
@@ -440,10 +449,24 @@ services:
       DB_NAME: openctem
       DB_SSLMODE: require
       APP_URL: https://{{ openctem_app_host }}
+{% if openctem_mail_relay | bool %}
+      # The platform e-mail is stored (when none is) to send through the kit's mail relay.
+      BOOTSTRAP_SMTP_HOST: {{ openctem_mail_relay_alias }}
+      BOOTSTRAP_SMTP_PORT: "587"
+      BOOTSTRAP_SMTP_FROM: {{ openctem_mail_relay_from | to_json }}
+      BOOTSTRAP_SMTP_STARTTLS: "true"
+      BOOTSTRAP_SMTP_CA_FILE: /etc/openctem/mail-relay-ca.crt
+{% endif %}
     # DB_MIGRATE_PASSWORD, APP_ENCRYPTION_KEY
     env_file:
       - {{ openctem_secrets_dir }}/bootstrap-admin.env
+{% if openctem_mail_relay | bool %}
+    volumes:
+      - {{ openctem_mail_relay_ca_file }}:/etc/openctem/mail-relay-ca.crt:ro
+    networks: [data, mail_submit]
+{% else %}
     networks: [data]
+{% endif %}
     <<: *hardening
     read_only: true
     restart: "no"
@@ -677,3 +700,10 @@ networks:
     ipam:
       config:
         - subnet: {{ openctem_net_egress_api }}.0/24
+{% if openctem_mail_relay | bool %}
+  # The mail relay's submission network (internal), created by its own stack
+  # (roles/mail_relay): only the API and the one-shot tools join it.
+  mail_submit:
+    external: true
+    name: {{ openctem_mail_relay_network }}
+{% endif %}

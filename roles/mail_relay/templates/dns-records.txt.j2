@@ -1,0 +1,31 @@
+# {{ ansible_managed }}
+# DNS records for mail sent by the platform relay. Publish them at the DNS
+# host of each sender domain; this file is rewritten on every run and holds
+# no secret (the DKIM value is the PUBLIC key).
+#
+# Relay name (SMTP greeting and PTR): {{ mail_relay_hostname }}
+{% if mail_relay_smarthost | length > 0 %}
+# Outbound goes through your smarthost {{ mail_relay_smarthost }}: SPF, PTR and
+# the sending address are those of THAT server. Ask its owner for the SPF
+# include to use; the lines below show where it goes.
+{% else %}
+# Outbound goes directly to recipients' servers from this server's public
+# address. It needs: port 25 outbound open, a PTR record (reverse DNS) of that
+# address pointing to {{ mail_relay_hostname }}, and {{ mail_relay_hostname }} resolving back to it.
+{% endif %}
+
+{% for d in mail_relay_sender_domains %}
+# --- {{ d }}
+{% if mail_relay_smarthost | length > 0 %}
+{{ d }}.  IN TXT  "v=spf1 include:<your smarthost's SPF name> ~all"
+{% else %}
+{{ d }}.  IN TXT  "v=spf1 ip4:<this server's public IPv4 address> ~all"
+{% endif %}
+{% if mail_relay_dkim | bool %}
+{{ mail_relay_dkim_selector }}._domainkey.{{ d }}.  IN TXT  "v=DKIM1; k=rsa; p={{ (mail_relay_dkim_pub.results | default([]) | selectattr('item', 'equalto', d) | map(attribute='stdout') | first | default('<run without --check>')) }}"
+{% endif %}
+_dmarc.{{ d }}.  IN TXT  "v=DMARC1; p=none; rua=mailto:postmaster@{{ d }}"
+
+{% endfor %}
+# DMARC starts at p=none (reports only). Move to p=quarantine, then p=reject,
+# when the reports show your own mail passing SPF or DKIM aligned with the From domain.

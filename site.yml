@@ -13,6 +13,8 @@
   ansible.builtin.import_playbook: playbooks/30-docker.yml
 - name: Firewall
   ansible.builtin.import_playbook: playbooks/35-firewall.yml
+- name: Mail relay (optional)
+  ansible.builtin.import_playbook: playbooks/52-mail-relay.yml
 - name: OpenCTEM and the tunnel connector
   ansible.builtin.import_playbook: playbooks/50-openctem.yml
 - name: Backups

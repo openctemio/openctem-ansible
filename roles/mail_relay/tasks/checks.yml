@@ -1,0 +1,34 @@
+---
+# Settings checks of the mail relay (tests/mail-relay.sh runs only this file).
+- name: The relay is configured, never open, and its names are plain
+  ansible.builtin.assert:
+    that:
+      - openctem_mail_relay | bool
+      - mail_relay_hostname is match(mail_relay_dns_name_re)
+      - mail_relay_sender_domains is sequence
+      - mail_relay_sender_domains | length > 0
+      - mail_relay_sender_domains | map('regex_search', mail_relay_dns_name_re) | select('none') | list | length == 0
+      - openctem_mail_relay_from is match('^[A-Za-z0-9._%+-]+@[a-z0-9.-]+$')
+      - openctem_mail_relay_from.split('@')[1] in mail_relay_sender_domains
+      - >-
+        mail_relay_smarthost | length == 0
+        or mail_relay_smarthost is match('^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?:[0-9]{1,5}$')
+      - mail_relay_dkim_selector is match('^[a-z0-9]([a-z0-9-]*[a-z0-9])?$')
+      - mail_relay_dkim_bits | int >= 2048
+      - openctem_mail_relay_project not in openctem_protected_projects
+      - openctem_mail_relay_project != openctem_project
+    fail_msg: >-
+      Set openctem_mail_relay_from (an address on one of the sender domains), mail_relay_hostname (a DNS name,
+      the address's PTR name) and mail_relay_sender_domains (DNS names). mail_relay_smarthost is host:port. The DKIM
+      selector is a plain label and the key at least 2048 bits. The relay's compose project must not be the
+      platform's or a protected one ({{ openctem_protected_projects }}).
+    quiet: true
+
+- name: The relay's networks do not overlap the stack's
+  ansible.builtin.assert:
+    that:
+      - >-
+        [openctem_net_mail_submit, openctem_net_mail_egress, openctem_net_origin, openctem_net_data, openctem_net_tunnel,
+        openctem_net_egress_api, cloudflared_net_egress] | unique | length == 7
+    fail_msg: The mail relay networks (openctem_net_mail_submit, openctem_net_mail_egress) must not share a /24 with any other stack network.
+    quiet: true

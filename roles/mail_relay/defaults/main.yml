@@ -1,0 +1,61 @@
+---
+# Optional send-only mail relay for the platform e-mail: a Postfix container
+# of its own stack, so the platform needs no online mail provider
+# (docs/MAIL-RELAY.md). OFF by default: nothing here runs unless
+# openctem_mail_relay is true and the stage is applied
+# (-e apply_mail_relay=true).
+#
+# It is never an open relay:
+#   - it listens only on an internal Docker network (no route out, no published
+#     port) whose only other member is the API;
+#   - it accepts mail only from that network (mynetworks) and relays nothing
+#     for anyone else; mail from other sources is rejected;
+#   - the sender domain must be one of mail_relay_sender_domains;
+#   - submission needs TLS, from the relay's own certificate authority.
+
+# The relay's public name: its SMTP greeting, and the name of the PTR record of
+# the address it sends from (deliverability). Required.
+#   mail_relay_hostname: mail.example.com
+mail_relay_hostname: ''
+# Domains the platform may send as; mail from any other domain is refused.
+# Required; the first is used for the default sender address.
+#   mail_relay_sender_domains: [example.com]
+mail_relay_sender_domains: []
+# Outbound. Empty: deliver directly to each recipient's mail server (port 25
+# outbound must be open; the sending address needs a PTR record and SPF).
+# Set host:port to hand all mail to your own mail server instead (Exchange,
+# Zimbra, a gateway); it is contacted with TLS required.
+#   mail_relay_smarthost: smtp.corp.example:587
+# A smarthost that needs a login: create <secrets>/mail_relay_smarthost.env on
+# the server (0400 root) holding RELAYHOST_USERNAME=... and RELAYHOST_PASSWORD=...
+# The values never reach this inventory or the compose file.
+mail_relay_smarthost: ''
+mail_relay_smarthost_env_file: "{{ openctem_secrets_dir }}/mail_relay_smarthost.env"
+
+# DKIM signing (OpenDKIM). The key is created once on the server, in
+# <secrets>/mail_relay_dkim/<domain>.private (0444 inside the 0700 root secrets
+# directory: the container's signer is not root; included in the secrets backup); the role prints the DNS record
+# to publish. One key per sender domain, one selector.
+mail_relay_dkim: false
+mail_relay_dkim_selector: openctem
+mail_relay_dkim_bits: 2048
+
+# Certificate of the submission endpoint (the kit's own CA signs it; the CA
+# certificate is what you give the platform: the role seeds it and prints its
+# fingerprint). Valid for this many days, renewed when under 30 left.
+mail_relay_cert_days: 825
+mail_relay_ca_days: 3650
+
+mail_relay_root: /opt/openctem-mail-relay
+mail_relay_mem: 256m
+# Maximum message size in bytes (the platform sends small notifications).
+mail_relay_message_size_limit: 10485760
+
+# The pulled reference: versions.yml's pin, through the third-party registry mirror when set.
+mail_relay_image_ref: >-
+  {{ (openctem_third_party_registry_mirror | trim('/') ~ '/' ~ openctem_mail_relay_image.split('/', 1)[1])
+  if openctem_third_party_registry_mirror | length > 0 else openctem_mail_relay_image }}
+# True when mail_relay_smarthost_env_file holds the smarthost login (you create it).
+mail_relay_smarthost_login: false
+# A DNS name: labels of letters, digits and hyphens, at least two of them.
+mail_relay_dns_name_re: '^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$'

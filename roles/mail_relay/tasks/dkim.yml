@@ -1,0 +1,35 @@
+---
+# One DKIM key per sender domain, created once on the server.
+- name: Create the DKIM key of each sender domain
+  ansible.builtin.command:
+    cmd: >-
+      openssl genrsa -out {{ openctem_secrets_dir }}/mail_relay_dkim/{{ item }}.private {{ mail_relay_dkim_bits }}
+    creates: "{{ openctem_secrets_dir }}/mail_relay_dkim/{{ item }}.private"
+  loop: "{{ mail_relay_sender_domains }}"
+  register: mail_relay_dkim_made
+  when: not ansible_check_mode
+
+- name: DKIM key files (readable inside the 0700 secrets directory by the signer in the container)
+  ansible.builtin.file:
+    path: "{{ openctem_secrets_dir }}/mail_relay_dkim/{{ item }}.private"
+    owner: root
+    group: root
+    mode: '0444'
+  loop: "{{ mail_relay_sender_domains }}"
+  when: not ansible_check_mode
+
+- name: Remember that a key was created
+  ansible.builtin.set_fact:
+    mail_relay_dkim_changed: "{{ mail_relay_dkim_made.changed | default(false) }}"
+
+- name: Public key of each domain, for the DNS record
+  ansible.builtin.shell:
+    cmd: >-
+      set -o pipefail;
+      openssl rsa -in {{ openctem_secrets_dir }}/mail_relay_dkim/{{ item }}.private -pubout -outform der 2>/dev/null | base64 -w0
+    executable: /bin/bash
+  loop: "{{ mail_relay_sender_domains }}"
+  register: mail_relay_dkim_pub
+  changed_when: false
+  no_log: false
+  when: not ansible_check_mode
