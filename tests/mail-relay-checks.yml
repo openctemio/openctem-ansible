@@ -1,0 +1,15 @@
+---
+# Runs only the settings checks of roles/mail_relay (tests/mail-relay.sh).
+- name: Mail relay settings checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/cloudflared/defaults/main.yml
+    - ../roles/mail_relay/defaults/main.yml
+    - ../versions.yml
+    - vars.yml
+  tasks:
+    - name: Checks
+      ansible.builtin.import_tasks: ../roles/mail_relay/tasks/checks.yml

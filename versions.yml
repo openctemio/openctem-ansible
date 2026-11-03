@@ -22,7 +22,20 @@
 #                          The roles then render a `console` service and the gateway's console site
 #                          (openctem_admin_site). Set by scripts/vendor-release.sh; v0.10.1 is the
 #                          first release with published images that has it (v0.10.0 was never published).
+#   feed_proxy: true       the API knows OPENCTEM_HTTPSEC_FEED_PROXY / _FEED_NO_PROXY (openctem_feed_proxy,
+#                          openctem_feed_no_proxy, <secrets>/feed_proxy_url); older APIs refuse to start
+#                          with them, so the preflight refuses the settings for a release without it.
 openctem_releases:
+  v0.18.1:
+    admin_plane: true
+    console_db_role: true
+    console_service: true
+    admin_audit_sink_required: true
+    api: ghcr.io/openctemio/openctem-api@sha256:b49746ce967703dc9672135b1b2a724bc44915946c3b66f8d284de1612f35adf
+    web: ghcr.io/openctemio/openctem-web@sha256:ae7ca5bd831b5af72e850aa2684359c08d1f3f321838bd537693db85d9731192
+    gateway: ghcr.io/openctemio/openctem-gateway@sha256:336330987f1c914766b417c304acbe1b1aa3a549afc3cba836424d677f88fca6
+    migrations: ghcr.io/openctemio/migrations@sha256:79d53f345dc6db6975c9304f46b32b5d87c240339e95e3b98359d76604dad05a
+    console: ghcr.io/openctemio/openctem-console@sha256:1bbeb07205b2cc03cf64f699be198db7fc2dbf1ffdd9ad5063a1e308c7d0982c
   v0.17.0:
     admin_plane: true
     console_db_role: true
@@ -182,6 +195,8 @@ openctem_redis_image: docker.io/library/redis:7.4.11-alpine@sha256:858f009f9709c
 # Uploader and fake-bucket server of continuous archiving (roles/backup). Digest pin: rclone publishes no image signature.
 openctem_rclone_image: docker.io/rclone/rclone:1.75.2@sha256:2687085f718d3c628f7fdfb77c52a1d344332aed543110bb88088f2c70d43eb5
 cloudflared_image: docker.io/cloudflare/cloudflared:2026.10.0@sha256:9b49eed8f62806d5d45ddf59ecefb5710429598ea6d3fcccd2af938f621b2b07
+# Optional send-only mail relay (roles/mail_relay): Postfix with OpenDKIM, Alpine variant, digest pin.
+openctem_mail_relay_image: docker.io/boky/postfix:v5.2.1-alpine@sha256:f88cc3667ca4f48e0f96edc63fb1689b8f47430724b383938908449d17aa060b
 
 # --- Docker Engine (Docker's apt repository) ----------------------------------------
 docker_apt_codename: resolute   # Ubuntu 26.04

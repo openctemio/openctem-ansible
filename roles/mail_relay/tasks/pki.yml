@@ -1,0 +1,87 @@
+---
+# The relay's own certificate authority and the submission certificate. The CA
+# key stays on this server (0400 root, 0700 directory, in the secrets backup);
+# the CA certificate is public and is what the platform trusts for this relay.
+- name: Certificate authority (created once)
+  ansible.builtin.command:
+    cmd: >-
+      openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes
+      -keyout {{ openctem_secrets_dir }}/mail_relay_ca/ca.key -out {{ openctem_mail_relay_ca_file }}
+      -days {{ mail_relay_ca_days }} -subj "/CN={{ openctem_project }} mail relay CA"
+      -addext "basicConstraints=critical,CA:TRUE,pathlen:0" -addext "keyUsage=critical,keyCertSign,cRLSign"
+    creates: "{{ openctem_mail_relay_ca_file }}"
+  register: mail_relay_ca_made
+  when: not ansible_check_mode
+
+- name: Certificate authority files
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - { path: "{{ openctem_secrets_dir }}/mail_relay_ca/ca.key", mode: '0400' }
+    - { path: "{{ openctem_mail_relay_ca_file }}", mode: '0644' }
+  loop_control:
+    label: "{{ item.path | basename }}"
+  when: not ansible_check_mode
+
+- name: Certificate extensions
+  ansible.builtin.copy:
+    dest: "{{ mail_relay_root }}/tls/server.ext"
+    content: |
+      basicConstraints=critical,CA:FALSE
+      keyUsage=critical,digitalSignature,keyEncipherment
+      extendedKeyUsage=serverAuth
+      subjectAltName=DNS:{{ openctem_mail_relay_alias }},DNS:{{ mail_relay_hostname }}
+    owner: root
+    group: root
+    mode: '0600'
+  register: mail_relay_ext
+
+- name: Submission certificate valid, for the right names, under the current CA?
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      cd {{ mail_relay_root }}/tls
+      openssl x509 -in server.crt -noout -checkend 2592000
+      openssl verify -CAfile {{ openctem_mail_relay_ca_file }} server.crt
+      san="$(openssl x509 -in server.crt -noout -ext subjectAltName)"
+      grep -q 'DNS:{{ openctem_mail_relay_alias }}' <<< "$san"
+      grep -q 'DNS:{{ mail_relay_hostname }}' <<< "$san"
+    executable: /bin/bash
+  register: mail_relay_cert_check
+  changed_when: false
+  failed_when: false
+  when: not ansible_check_mode
+
+- name: Issue the submission certificate
+  ansible.builtin.shell:
+    cmd: |
+      set -euo pipefail
+      umask 077
+      cd {{ mail_relay_root }}/tls
+      openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -keyout server.key -out server.csr \
+        -subj "/CN={{ openctem_mail_relay_alias }}"
+      openssl x509 -req -in server.csr -CA {{ openctem_mail_relay_ca_file }} -CAkey {{ openctem_secrets_dir }}/mail_relay_ca/ca.key \
+        -CAcreateserial -CAserial {{ mail_relay_root }}/tls/ca.srl -out server.crt -days {{ mail_relay_cert_days }} -extfile server.ext
+      rm -f server.csr
+      chmod 0400 server.key
+      chmod 0644 server.crt
+    executable: /bin/bash
+  when:
+    - not ansible_check_mode
+    - (mail_relay_cert_check.rc | default(1)) != 0 or mail_relay_ext.changed
+  register: mail_relay_cert_made
+  changed_when: true
+
+- name: Remember that the certificate changed
+  ansible.builtin.set_fact:
+    mail_relay_pki_changed: "{{ (mail_relay_cert_made.changed | default(false)) or (mail_relay_ca_made.changed | default(false)) }}"
+
+- name: CA fingerprint (SHA-256)
+  ansible.builtin.command:
+    cmd: openssl x509 -in {{ openctem_mail_relay_ca_file }} -noout -fingerprint -sha256
+  register: mail_relay_ca_fp
+  changed_when: false
+  when: not ansible_check_mode

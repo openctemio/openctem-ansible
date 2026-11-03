@@ -11,6 +11,7 @@
     - ../roles/openctem_common/defaults/main.yml
     - ../roles/openctem/defaults/main.yml
     - ../roles/cloudflared/defaults/main.yml
+    - ../roles/mail_relay/defaults/main.yml
     - ../roles/backup/defaults/main.yml
     - ../roles/monitoring/defaults/main.yml
     - ../roles/firewall/defaults/main.yml
@@ -36,6 +37,8 @@
         - { role: openctem, src: compose.yml.j2, dest: compose.yml }
         - { role: cloudflared, src: compose.cloudflared.yml.j2, dest: compose.cloudflared.yml }
         - { role: cloudflared, src: cloudflared.yml.j2, dest: cloudflared.yml }
+        - { role: mail_relay, src: compose.mail-relay.yml.j2, dest: compose.mail-relay.yml }
+        - { role: mail_relay, src: dns-records.txt.j2, dest: dns-records.txt }
         - { role: openctem, src: http.site.j2, dest: gateway/modes/http.site }
         - { role: openctem, src: openctem-secrets.sh.j2, dest: scripts/openctem-secrets }
         - { role: openctem, src: openctem-verify.sh.j2, dest: scripts/openctem-verify }

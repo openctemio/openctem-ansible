@@ -38,6 +38,20 @@
       openctem_api_env takes non-secret UPPER_CASE settings only, none of {{ openctem_api_env_reserved }};
       secrets are generated on the host.
 
+- name: The platform feed proxy settings
+  ansible.builtin.import_tasks: feed_proxy_checks.yml
+
+- name: The mail relay wiring (roles/mail_relay)
+  ansible.builtin.assert:
+    that:
+      - openctem_mail_relay | bool
+      - openctem_mail_relay_from is match('^[A-Za-z0-9._%+-]+@[a-z0-9.-]+$')
+    fail_msg: >-
+      openctem_mail_relay is true: set openctem_mail_relay_from (the platform's sender address, on one of the
+      relay's mail_relay_sender_domains) and run the mail relay stage first (docs/MAIL-RELAY.md).
+    quiet: true
+  when: openctem_mail_relay | bool
+
 - name: The administrators' audit sink settings
   ansible.builtin.import_tasks: audit_sink_checks.yml
 

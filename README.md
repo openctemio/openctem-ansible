@@ -51,7 +51,7 @@ Detailed references: [Installation scenarios](docs/INSTALL-SCENARIOS.md) ·
 [Private registry](docs/CORPORATE-REGISTRY.md) ·
 [Deploy without Ansible](docs/DEPLOY-STANDALONE.md) ·
 [Cloudflare Tunnel and Access](docs/CLOUDFLARE-ACCESS.md) ·
-[Firewall](docs/FIREWALL.md) · [docs site page](docs/self-hosting-with-ansible.md).
+[Firewall](docs/FIREWALL.md) · [Mail relay](docs/MAIL-RELAY.md) · [docs site page](docs/self-hosting-with-ansible.md).
 
 Step-by-step guides on the documentation site (they cover the same ground with more
 context, for both ways of serving OpenCTEM):
@@ -248,7 +248,9 @@ The same stage can also close the stack's **outbound** side: with
 `openctem_signup_mode: open`) the API and the tunnel connector cannot reach
 private, link-local/metadata, CGNAT, loopback or host-local addresses, only the
 internet. Operator-approved internal destinations (an internal SMTP relay, an
-on-premises Jira) go in `openctem_egress_allow`. See
+on-premises Jira) go in `openctem_egress_allow`. Inside a corporate network
+whose only way out is an HTTPS proxy, `openctem_feed_proxy` sends the
+platform's own feeds through it (nothing an organization configures). See
 [docs/FIREWALL.md](docs/FIREWALL.md#outbound-policy-of-the-stacks-containers).
 
 ### 3.8 OpenCTEM
@@ -293,6 +295,18 @@ behind its own Cloudflare Access application; the default is a second port,
 8443, on the loopback ingress). It is never published through the tunnel
 without that zero-trust layer; see
 [docs/self-hosting-with-ansible.md](docs/self-hosting-with-ansible.md#platform-console-as-its-own-service).
+
+### 3.8.1 Mail without an online provider (optional)
+
+The platform e-mail needs one SMTP server. If you run none and want no online
+provider, the kit can install a send-only Postfix relay beside OpenCTEM. Off by
+default; see [docs/MAIL-RELAY.md](docs/MAIL-RELAY.md) (security properties, the
+settings, the DNS records, troubleshooting).
+
+```bash
+# inventory: openctem_mail_relay: true, openctem_mail_relay_from, mail_relay_hostname, mail_relay_sender_domains
+ansible-playbook -i $INV playbooks/52-mail-relay.yml -K -e apply_mail_relay=true   # before the OpenCTEM stage
+```
 
 ### 3.9 Cloudflare
 
@@ -870,16 +884,16 @@ boundary against root on the host.
 
 ```
 site.yml                 every stage in runbook order (each gated by apply_*)
-playbooks/               00-preflight 10-os 20-ssh 30-docker 35-firewall 50-openctem
+playbooks/               00-preflight 10-os 20-ssh 30-docker 35-firewall 50-openctem 52-mail-relay
                          55-backup 60-monitoring 71-rollback 80-audit 85-exposure-audit
-roles/                   os_baseline ssh docker firewall openctem cloudflared backup monitoring
+roles/                   os_baseline ssh docker firewall openctem cloudflared mail_relay backup monitoring
                          (+ openctem_common: shared defaults, loads versions.yml)
 versions.yml             every pinned version and digest
 requirements.yml         exact collection versions
 inventories/example/     example inventory; copy it outside the repository
 docs/                    Cloudflare, firewall, docs-site page
 scripts/vendor-release.sh   add an OpenCTEM release
-tests/                   render.yml, console.sh, audit-sink.sh, signer.sh, registry-mirror.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
+tests/                   render.yml, console.sh, mail-relay.sh, audit-sink.sh, signer.sh, registry-mirror.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
 ```
 
 Tests never touch your workstation's containers: `tests/smoke.sh` and
