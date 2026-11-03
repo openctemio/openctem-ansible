@@ -16,6 +16,12 @@
 #   admin_audit_sink_required: true  the release refuses MANAGED_SERVICE=true without ADMIN_AUDIT_SINK;
 #                          the preflight then stops a managed inventory that sets no
 #                          openctem_admin_audit_sink. Set it on every release after v0.10.1.
+#   admin_audit_sink_removed: true  the release's Community images no longer include the audit stream;
+#                          the preflight refuses openctem_admin_audit_sink for it unless
+#                          openctem_admin_audit_sink_provided is true (an image that includes the stream),
+#                          and MANAGED_SERVICE=true then needs no sink. Not set by scripts/vendor-release.sh
+#                          (it cannot tell from the files it copies): add it by hand to every release built
+#                          after openctem PR #3595, in place of admin_audit_sink_required.
 #   console_service: true  the release ships the platform console as its own service: image
 #                          ghcr.io/openctemio/openctem-console (add a `console:` digest next to the other
 #                          images; it is cosign-verified like them) and gateway/servers.common.

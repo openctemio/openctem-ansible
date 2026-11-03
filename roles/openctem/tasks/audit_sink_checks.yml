@@ -22,7 +22,8 @@
 - name: A managed service has an administrators' audit sink
   ansible.builtin.assert:
     that: >-
-      not (openctem_releases[openctem_version].admin_audit_sink_required | default(false) | bool)
+      (openctem_releases[openctem_version].admin_audit_sink_removed | default(false) | bool)
+      or not (openctem_releases[openctem_version].admin_audit_sink_required | default(false) | bool)
       or not ((openctem_api_env.MANAGED_SERVICE | default('false') | string | lower) in ['1', 't', 'true'])
       or openctem_admin_audit_sink != ''
     fail_msg: >-
@@ -30,6 +31,20 @@
       openctem_admin_audit_sink to an https:// URL (the off-box copy, recommended for a hosted service) or to
       'file' (README, "Administrators' audit sink").
   when: openctem_api_env is mapping
+
+# A release whose Community images no longer include the audit stream refuses to
+# start while a sink is set: stop here instead.
+- name: A release without the audit stream is not given a sink
+  ansible.builtin.assert:
+    that: >-
+      not (openctem_releases[openctem_version].admin_audit_sink_removed | default(false) | bool)
+      or openctem_admin_audit_sink == ''
+      or (openctem_admin_audit_sink_provided | bool)
+    fail_msg: >-
+      {{ openctem_version }}'s Community images no longer include the administrators' audit stream and refuse to
+      start while ADMIN_AUDIT_SINK is set. Unset openctem_admin_audit_sink (an existing file copy under
+      openctem_admin_audit_sink_dir stays on disk, nothing is deleted), or run images that include the stream and
+      set openctem_admin_audit_sink_provided: true.
 
 - name: The https sink's HMAC key file on the server
   ansible.builtin.stat:

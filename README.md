@@ -437,6 +437,7 @@ anything.
 | `openctem_admin_audit_sink` | `''` (off) | `file`, or an `https://` URL |
 | `openctem_admin_audit_sink_head_interval` | `''` (API default, 15m) | interval of the signed chain-head records, e.g. `5m` |
 | `openctem_admin_audit_sink_dir` | `/opt/openctem/admin-audit` | `file` mode: host directory |
+| `openctem_admin_audit_sink_provided` | `false` | `true` only when the images include the audit stream (see the upgrade note below) |
 
 - **`file`**: the kit creates `openctem_admin_audit_sink_dir` (owner uid 1000,
   the API's user, mode 0750), mounts it into the API at
@@ -459,6 +460,18 @@ anything.
   the key in `secrets.tar.gz`.
 - `syslog+tls://` is **not supported by this kit yet** (the API needs CA and
   client certificate files mounted into the container); the checks refuse it.
+
+Upgrade note, releases flagged `admin_audit_sink_removed`. The Community
+images of such a release no longer include the audit stream and refuse to
+start while `ADMIN_AUDIT_SINK` (or any `ADMIN_AUDIT_SINK_*`) is set;
+`MANAGED_SERVICE=true` no longer needs a sink. For such a release the checks
+refuse a non-empty `openctem_admin_audit_sink` (failing before the host is
+touched, not at container start) unless `openctem_admin_audit_sink_provided:
+true`, which you set only when you run images that include the stream. To
+upgrade a server that uses a sink, unset `openctem_admin_audit_sink`; the kit
+then renders no `ADMIN_AUDIT_SINK*` variable and no mount. The existing file
+copy under `openctem_admin_audit_sink_dir` and the backup of it stay on disk;
+nothing is deleted. The flag is set in `versions.yml` by hand (see its header).
 
 Threat model. The `file` sink is on the same host as the database: it protects
 against rewrites inside the database and leaves the host with the backups, but

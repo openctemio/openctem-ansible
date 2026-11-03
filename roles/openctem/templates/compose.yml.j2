@@ -347,6 +347,7 @@ services:
       # registered there stop working if this host name changes).
       ADMIN_PUBLIC_URL: https://{{ openctem_admin_host }}
 {% endif %}
+{% if not (openctem_releases[openctem_version].admin_audit_sink_removed | default(false) | bool) or openctem_admin_audit_sink_provided | bool %}
 {% if openctem_admin_audit_sink == 'file' %}
       ADMIN_AUDIT_SINK: file://{{ openctem_admin_audit_sink_container_dir }}/admin-audit.jsonl
 {% elif openctem_admin_audit_sink | length > 0 %}
@@ -354,6 +355,7 @@ services:
 {% endif %}
 {% if openctem_admin_audit_sink | length > 0 and openctem_admin_audit_sink_head_interval | length > 0 %}
       ADMIN_AUDIT_SINK_HEAD_INTERVAL: {{ openctem_admin_audit_sink_head_interval | to_json }}
+{% endif %}
 {% endif %}
 {% if openctem_feed_proxy | length > 0 %}
       OPENCTEM_HTTPSEC_FEED_PROXY: {{ openctem_feed_proxy | to_json }}
@@ -414,7 +416,7 @@ services:
       - datastore-tls:/datastore-tls:ro
       - api-data:/app/data
       - api-tmp:/tmp
-{% if openctem_admin_audit_sink == 'file' %}
+{% if openctem_admin_audit_sink == 'file' and (not (openctem_releases[openctem_version].admin_audit_sink_removed | default(false) | bool) or openctem_admin_audit_sink_provided | bool) %}
       - {{ openctem_admin_audit_sink_dir }}:{{ openctem_admin_audit_sink_container_dir }}
 {% endif %}
 {% if openctem_job_signer | bool %}
