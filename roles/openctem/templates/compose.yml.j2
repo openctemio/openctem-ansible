@@ -342,6 +342,10 @@ services:
 {% if openctem_captcha_turnstile_site_key | length > 0 %}
       CAPTCHA_TURNSTILE_SITE_KEY: {{ openctem_captcha_turnstile_site_key | string | to_json }}
 {% endif %}
+      # The gateway's health, for the platform console's Health page. The
+      # gateway serves it on :2020, a port the compose file never publishes,
+      # so only containers on this stack's network reach it.
+      SYSTEM_GATEWAY_HEALTH_URL: http://gateway:2020/health
 {% if admin_site == 'host' %}
       # The console's WebAuthn relying party: its own origin (security keys
       # registered there stop working if this host name changes).
