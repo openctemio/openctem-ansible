@@ -39,6 +39,14 @@ ok -e "$managed" -e openctem_admin_audit_sink=$url -e openctem_secrets_dir="$wor
 no -e "$managed" -e openctem_admin_audit_sink=$url -e openctem_secrets_dir="$work/none"
 no -e "$managed" -e openctem_admin_audit_sink=$url -e openctem_secrets_dir="$work/short"
 no -e "$managed" -e openctem_admin_audit_sink=$url -e openctem_secrets_dir="$work/wide"
+# A release without the audit stream: no sink needed for a managed service, a
+# sink is refused unless the images include the stream.
+rm_fix="@$kit/tests/fixtures/sink-removed-release.yml"
+ok -e "$rm_fix" -e "$managed"
+no -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=file
+no -e "$rm_fix" -e openctem_admin_audit_sink=$url -e openctem_secrets_dir="$work/sec"
+ok -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=file -e openctem_admin_audit_sink_provided=true
+ok -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=$url -e openctem_admin_audit_sink_provided=true -e openctem_secrets_dir="$work/sec"
 # Malformed settings.
 no -e openctem_admin_audit_sink=http://audit.example.com/x
 no -e openctem_admin_audit_sink=syslog+tls://audit.example.com:6514
@@ -55,8 +63,12 @@ render() { # render <name> [-e k=v ...]
 render off
 render file -e openctem_admin_audit_sink=file -e openctem_admin_audit_sink_head_interval=5m
 render https -e openctem_admin_audit_sink=$url
+render removed -e "$rm_fix"
+render removed-provided -e "$rm_fix" -e openctem_admin_audit_sink=file -e openctem_admin_audit_sink_provided=true
 
 ! grep -q 'ADMIN_AUDIT_SINK' "$work/off/compose.yml" "$work/off/scripts/openctem-secrets"
+! grep -q 'ADMIN_AUDIT_SINK\|admin-audit' "$work/removed/compose.yml"
+grep -q 'ADMIN_AUDIT_SINK: file://' "$work/removed-provided/compose.yml"
 python3 -I - "$work" <<'PY'
 import sys, yaml
 w = sys.argv[1]

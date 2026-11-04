@@ -111,6 +111,11 @@ openctem_captcha_turnstile_site_key: ''
 #             created by you on the server: `openssl rand -hex 32`).
 # syslog+tls:// is not supported by this kit yet.
 openctem_admin_audit_sink: ''
+# A release flagged admin_audit_sink_removed no longer includes the audit stream in
+# its Community images and refuses to start while ADMIN_AUDIT_SINK is set. Set this
+# to true only when you run images that include the stream; until then the preflight
+# refuses openctem_admin_audit_sink for such a release.
+openctem_admin_audit_sink_provided: false
 # Optional interval of the signed chain-head records (Go duration, API default 15m).
 openctem_admin_audit_sink_head_interval: ''
 # The file sink's path inside the API container (do not change).
