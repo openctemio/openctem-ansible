@@ -905,8 +905,8 @@ versions.yml             every pinned version and digest
 requirements.yml         exact collection versions
 inventories/example/     example inventory; copy it outside the repository
 docs/                    Cloudflare, firewall, docs-site page
-scripts/vendor-release.sh   add an OpenCTEM release
-tests/                   render.yml, console.sh, mail-relay.sh, audit-sink.sh, signer.sh, registry-mirror.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
+scripts/vendor-release.sh   add an OpenCTEM release (reads api/deploy up to v0.20.x, server/deploy from v0.21.0)
+tests/                   render.yml, vendor-release-layout.sh, console.sh, mail-relay.sh, audit-sink.sh, signer.sh, registry-mirror.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
 ```
 
 Tests never touch your workstation's containers: `tests/smoke.sh` and

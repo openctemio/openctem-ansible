@@ -4,19 +4,36 @@
 # into roles/openctem/defaults/main.yml (openctem_releases).
 #
 #   scripts/vendor-release.sh v0.9.7
+#   scripts/vendor-release.sh --layout v0.21.0   # print the backend directory only
 #
 # Runs on the controller. Needs git and docker (buildx imagetools, read-only
 # registry lookups). Review the diff against the previous release before use:
 # the gateway's planes.caddy changes when the API adds a route plane.
 set -euo pipefail
-tag="${1:?usage: $0 vX.Y.Z}"
+layout_only=false
+if [ "${1:-}" = --layout ]; then layout_only=true; shift; fi
+tag="${1:?usage: $0 [--layout] vX.Y.Z}"
 case "$tag" in v[0-9]*.[0-9]*.[0-9]*) ;; *) echo "not a release tag: $tag" >&2; exit 2 ;; esac
+# The Go backend directory of the OpenCTEM repository: api/ up to the v0.20.x
+# releases (and their hotfixes), server/ from v0.21.0 on (source layout only;
+# image names and contents are unchanged).
+backend_dir() { # <tag>
+  local v="${1#v}" major minor
+  major="${v%%.*}"; v="${v#*.}"; minor="${v%%.*}"
+  if [ "$major" -eq 0 ] && [ "$minor" -le 20 ]; then echo api; else echo server; fi
+}
+backend="$(backend_dir "$tag")"
+if [ "$layout_only" = true ]; then echo "$backend"; exit 0; fi
 kit="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 dest="$kit/roles/openctem/files/release/$tag"
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 git clone -q --depth 1 --branch "$tag" https://github.com/openctemio/openctem.git "$work/src"
-src="$work/src/api/deploy"
+src="$work/src/$backend/deploy"
+if [ ! -d "$src" ]; then
+  echo "$tag has no $backend/deploy: the backend directory of this release is not the expected one (see backend_dir)" >&2
+  exit 1
+fi
 mkdir -p "$dest/gateway/modes" "$dest/gateway/sensors" "$dest/postgres"
 cp "$src/gateway/Caddyfile" "$src/gateway/planes.caddy" "$src/gateway/entrypoint.sh" "$dest/gateway/"
 cp "$src/gateway/modes/http.global" "$dest/gateway/modes/"

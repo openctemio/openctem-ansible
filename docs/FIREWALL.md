@@ -166,7 +166,8 @@ firewall instead: `github.com`, `release-assets.githubusercontent.com`,
 `www.cisa.gov` then `raw.githubusercontent.com` (KEV); `epss.empiricalsecurity.com`
 (EPSS); `ctem.org` (CTEM-ID). KEV and EPSS also arrive inside the signed
 vulnerability bundles, and an air-gapped install reads the bundles from a
-local directory: OpenCTEM `api/docs/deployment/air-gapped.md`.
+local directory: OpenCTEM `server/docs/deployment/air-gapped.md`
+(`api/docs/deployment/air-gapped.md` in v0.20.x and earlier).
 
 **How it is enforced.** `playbooks/35-firewall.yml` (with `apply_firewall`)
 installs `/usr/local/sbin/openctem-egress` and a systemd unit. The script
