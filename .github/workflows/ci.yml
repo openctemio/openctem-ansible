@@ -44,6 +44,8 @@ jobs:
           for p in site.yml playbooks/*.yml tests/render.yml; do
             ansible-playbook -i inventories/example/hosts.ini --syntax-check "$p"
           done
+      - name: Release vendoring reads the backend directory of the tag (api/ to v0.20.x, server/ after)
+        run: tests/vendor-release-layout.sh
       - name: Render the templates
         run: ansible-playbook tests/render.yml -e render_dir="$RUNNER_TEMP/render"
       - name: Platform console as its own service (fixture release, site modes, validation)
