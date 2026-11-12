@@ -44,4 +44,19 @@ g commit -qm empty
 g tag v0.22.0
 if OPENCTEM_REPO="file://$repo" bash "$script" --layout v0.22.0 >/dev/null 2>&1; then echo "FAIL: a tag without a deploy directory was accepted"; fail=1; else echo "ok   unknown layout refused"; fi
 if bash "$script" --layout latest >/dev/null 2>&1; then echo "FAIL: a non-tag was accepted"; fail=1; else echo "ok   non-tag refused"; fi
+# The audit stream flag comes from the release's own source.
+g checkout -q v0.21.1
+mkdir -p "$repo/server/internal/config" "$repo/server/internal/extensionhost"
+echo 'ADMIN_AUDIT_SINK string' >"$repo/server/internal/config/config.go"
+g add -A; g commit -qm sink; g tag v0.21.2
+printf 'var removedSettings = []string{\n\t"ADMIN_AUDIT_SINK",\n}\n' >"$repo/server/internal/extensionhost/removed_settings.go"
+g add -A; g commit -qm removed; g tag v0.22.1
+audit() { # <tag> <want>
+  local got
+  got="$(OPENCTEM_REPO="file://$repo" bash "$script" --audit-sink "$1" 2>/dev/null)" || true
+  if [ "$got" = "$2" ]; then echo "ok   $1 audit sink -> $got"; else echo "FAIL $1 audit sink: got $got, want $2"; fail=1; fi
+}
+audit v0.21.1 none
+audit v0.21.2 required
+audit v0.22.1 removed
 exit "$fail"
