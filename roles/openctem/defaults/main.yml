@@ -116,6 +116,15 @@ openctem_admin_audit_sink: ''
 # to true only when you run images that include the stream; until then the preflight
 # refuses openctem_admin_audit_sink for such a release.
 openctem_admin_audit_sink_provided: false
+# The first OpenCTEM release whose Community images refuse ADMIN_AUDIT_SINK*
+# (do not change): its versions.yml entry and every later one must carry
+# admin_audit_sink_removed.
+openctem_audit_sink_removed_from: 0.22.0
+# Files on the server (in openctem_root and openctem_secrets_dir) the checks read
+# for ADMIN_AUDIT_SINK* lines before a release without the audit stream: compose
+# override files and env files the kit does not render.
+openctem_audit_sink_host_files: ['compose.override.yml', 'compose.override.yaml', 'docker-compose.override.yml',
+                                 'docker-compose.override.yaml', '*.env', '.env']
 # Optional interval of the signed chain-head records (Go duration, API default 15m).
 openctem_admin_audit_sink_head_interval: ''
 # The file sink's path inside the API container (do not change).

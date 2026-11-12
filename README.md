@@ -471,7 +471,16 @@ true`, which you set only when you run images that include the stream. To
 upgrade a server that uses a sink, unset `openctem_admin_audit_sink`; the kit
 then renders no `ADMIN_AUDIT_SINK*` variable and no mount. The existing file
 copy under `openctem_admin_audit_sink_dir` and the backup of it stay on disk;
-nothing is deleted. The flag is set in `versions.yml` by hand (see its header).
+nothing is deleted. `scripts/vendor-release.sh` prints the flag from the
+release's own source; every release from v0.22.0 on carries it, and the checks
+refuse such a `versions.yml` entry without it (or with
+`admin_audit_sink_required` as well). Before such a release the checks also
+read the server: a compose override file (`compose.override.yml`,
+`docker-compose.override.yml`, `.yaml` too) in `openctem_root`, or an env file
+in `openctem_root` or `openctem_secrets_dir` other than the generated
+`api.env`, that still sets an `ADMIN_AUDIT_SINK*` variable fails the run with
+the file names (never their content), before anything changes. Remove those
+lines first.
 
 Threat model. The `file` sink is on the same host as the database: it protects
 against rewrites inside the database and leaves the host with the backups, but

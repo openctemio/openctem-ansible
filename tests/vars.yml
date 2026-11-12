@@ -9,3 +9,5 @@ backup_age_recipient: ''
 mail_relay_hostname: mail.example.com
 mail_relay_sender_domains: [example.com]
 openctem_mail_relay_from: noreply@example.com
+# The checks read server files as root on a host; the tests read local paths.
+openctem_checks_become: false

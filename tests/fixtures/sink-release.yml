@@ -1,9 +1,9 @@
 ---
 # A release that requires the administrators' audit sink (stands in for the
 # first release after v0.10.1 until versions.yml has it).
-openctem_version: v0.98.0
+openctem_version: v0.21.98
 openctem_releases:
-  v0.98.0:
+  v0.21.98:
     admin_plane: true
     console_service: true
     console_db_role: true

@@ -47,6 +47,31 @@ no -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=file
 no -e "$rm_fix" -e openctem_admin_audit_sink=$url -e openctem_secrets_dir="$work/sec"
 ok -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=file -e openctem_admin_audit_sink_provided=true
 ok -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=$url -e openctem_admin_audit_sink_provided=true -e openctem_secrets_dir="$work/sec"
+# From v0.22.0 on, a release entry must be flagged admin_audit_sink_removed (an
+# entry copied from an older one would render the sink and stop the API).
+no -e '{"openctem_version":"v0.22.0","openctem_releases":{"v0.22.0":{"admin_audit_sink_required":true}}}'
+no -e '{"openctem_version":"v0.22.0","openctem_releases":{"v0.22.0":{}}}'
+no -e '{"openctem_version":"v0.22.0","openctem_releases":{"v0.22.0":{"admin_audit_sink_removed":true,"admin_audit_sink_required":true}}}'
+ok -e '{"openctem_version":"v0.22.0","openctem_releases":{"v0.22.0":{"admin_audit_sink_removed":true}}}' -e "$managed"
+ok -e '{"openctem_version":"v0.21.0","openctem_releases":{"v0.21.0":{"admin_audit_sink_required":true}}}' -e openctem_admin_audit_sink=file
+# Files on the server the kit does not render must not set the sink for such a
+# release (api.env is written again by the run and is not read).
+mkdir -p "$work/host/root" "$work/host/sec"
+ok -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec"
+echo 'ADMIN_AUDIT_SINK_SECRET=x' > "$work/host/sec/api.env"
+ok -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec"
+printf 'services:\n  api:\n    environment:\n      ADMIN_AUDIT_SINK: file:///x\n' > "$work/host/root/compose.override.yml"
+no -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec"
+ok -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec" -e openctem_admin_audit_sink_provided=true
+rm "$work/host/root/compose.override.yml"
+echo 'ADMIN_AUDIT_SINK_HEAD_INTERVAL=5m' > "$work/host/sec/extra.env"
+no -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec"
+printf 'services:\n  api:\n    environment:\n      - "ADMIN_AUDIT_SINK=https://a.example.com/x"\n' > "$work/host/root/docker-compose.override.yaml"
+rm "$work/host/sec/extra.env"
+no -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec"
+# A release that still has the stream does not read the server's files.
+ok -e "$managed" -e openctem_admin_audit_sink=file -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec"
+rm "$work/host/root/docker-compose.override.yaml"
 # Malformed settings.
 no -e openctem_admin_audit_sink=http://audit.example.com/x
 no -e openctem_admin_audit_sink=syslog+tls://audit.example.com:6514
