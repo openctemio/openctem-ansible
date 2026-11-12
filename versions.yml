@@ -32,6 +32,16 @@
 #                          openctem_feed_no_proxy, <secrets>/feed_proxy_url); older APIs refuse to start
 #                          with them, so the preflight refuses the settings for a release without it.
 openctem_releases:
+  v0.21.0:
+    admin_plane: true
+    console_db_role: true
+    console_service: true
+    admin_audit_sink_required: true
+    api: ghcr.io/openctemio/openctem-api@sha256:040dfa1f1610556d8b57f267307b0c89dea761f5fd6c09a7661edf8ceb6bfad9
+    web: ghcr.io/openctemio/openctem-web@sha256:37fa576b92b62773c40ba408420dafd118813ff78baf5bc833d20ef07e2d864c
+    gateway: ghcr.io/openctemio/openctem-gateway@sha256:158dbf276553d6f75e1fa1dc7f850dd9e80e96998d89064352ab836661c11597
+    migrations: ghcr.io/openctemio/migrations@sha256:8bd995c477a83e1aabfa5aef74673fdfc4ed0a48236c9d90be8cf3f8cf410428
+    console: ghcr.io/openctemio/openctem-console@sha256:4cc1d1ad419140940f25592e1c6f2bacc03233dfc1cd562b157aa6a9c7fa75d8
   v0.20.3:
     admin_plane: true
     console_db_role: true
