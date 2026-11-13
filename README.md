@@ -437,7 +437,7 @@ anything.
 | `openctem_admin_audit_sink` | `''` (off) | `file`, or an `https://` URL |
 | `openctem_admin_audit_sink_head_interval` | `''` (API default, 15m) | interval of the signed chain-head records, e.g. `5m` |
 | `openctem_admin_audit_sink_dir` | `/opt/openctem/admin-audit` | `file` mode: host directory |
-| `openctem_admin_audit_sink_provided` | `false` | `true` only when the images include the audit stream (see the upgrade note below) |
+| `openctem_admin_audit_sink_provided` | `false` | `true` only with a [custom server image](#custom-server-image) that includes the audit stream (see the upgrade note below) |
 
 - **`file`**: the kit creates `openctem_admin_audit_sink_dir` (owner uid 1000,
   the API's user, mode 0750), mounts it into the API at
@@ -467,8 +467,11 @@ start while `ADMIN_AUDIT_SINK` (or any `ADMIN_AUDIT_SINK_*`) is set;
 `MANAGED_SERVICE=true` no longer needs a sink. For such a release the checks
 refuse a non-empty `openctem_admin_audit_sink` (failing before the host is
 touched, not at container start) unless `openctem_admin_audit_sink_provided:
-true`, which you set only when you run images that include the stream. To
-upgrade a server that uses a sink, unset `openctem_admin_audit_sink`; the kit
+true`, which you set only when `openctem_custom_api_image` is an API image that
+includes the stream (the checks refuse the flag without one; see
+[Custom server image](#custom-server-image): that keeps the sink, its mount and
+its position across the upgrade). To upgrade a server that uses a sink with
+the release's own images, unset `openctem_admin_audit_sink`; the kit
 then renders no `ADMIN_AUDIT_SINK*` variable and no mount. The existing file
 copy under `openctem_admin_audit_sink_dir` and the backup of it stay on disk;
 nothing is deleted. `scripts/vendor-release.sh` prints the flag from the
@@ -488,6 +491,77 @@ anyone with root on the host can still edit both. An `https` receiver run by a
 different party (or at least on a different host and account) is the real
 off-box copy: use it for a hosted service. Neither mode stores a secret in the
 inventory, the compose file or git.
+
+### Custom server image
+
+An installation can run a custom build of the platform API: an image that is
+this release's core with extensions compiled in (for example one that
+provides a feature the Community image no longer includes, such as the
+administrators' audit stream from a release flagged `admin_audit_sink_removed`).
+It replaces the image of the `api` service only; web, console, gateway,
+migrations, the job signer and the first-admin tool keep the release's
+signed images.
+
+```yaml
+openctem_custom_api_image: registry.example.com/org/server:v0.22.0@sha256:<64 hex>
+openctem_custom_api_cosign_identity: https://github.com/<org>/<repo>/.github/workflows/<workflow>.yml@refs/tags/v0.22.0
+# openctem_custom_api_cosign_issuer: https://token.actions.githubusercontent.com   # the default
+# Its own migrations, if it has any (an argv list; never a password in it):
+# openctem_custom_api_migrate_command: ["/app/<tool>", ..., "-database",
+#   "postgres://openctem_migrator@postgres:5432/openctem?sslmode=require", "up"]
+# openctem_admin_audit_sink_provided: true   # only if this image includes the audit stream
+# openctem_registry_docker_config_dir: /root/.docker   # a private registry (below)
+```
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `openctem_custom_api_image` | `''` (the release's image) | image reference pinned by digest; used as given (`openctem_registry_mirror` does not rewrite it) |
+| `openctem_custom_api_cosign_identity` | `''` | exact keyless certificate identity of the workflow that signs it; required with the image |
+| `openctem_custom_api_cosign_issuer` | GitHub Actions OIDC | certificate issuer of that identity |
+| `openctem_custom_api_migrate_command` | `[]` | the image's own migrations, run once per deploy as the one-shot `migrate-extension` |
+
+What the kit enforces:
+
+- **Pinned and verified.** The reference must end in `@sha256:<64 hex>`. Before
+  anything is pulled (also in `--check`), cosign verifies its keyless signature
+  against `openctem_custom_api_cosign_identity` and the issuer, and the release's
+  own images against the release identity as always. A custom image cannot run
+  unverified: `openctem_verify_signatures: false` is refused with it.
+- **Built on this release.** The signature must carry the annotation
+  `io.openctem.core.version=<openctem_version>` (`cosign sign -a
+  io.openctem.core.version=vX.Y.Z`). An image built on another release fails the
+  check, so upgrading `openctem_version` without a new custom image stops before
+  the host changes.
+- **Migrations.** With `openctem_custom_api_migrate_command`, the one-shot
+  service `migrate-extension` runs the custom image with that argv (first
+  element as the entrypoint) after `migrate` and before the grants and the
+  API, with the migrator's role and `migrate.env` (`PGPASSWORD`), on the data
+  network, read-only. In releases that rerun the least-privilege SQL after the
+  migrations (`db-grants`, every release flagged `console_db_role`), that rerun
+  waits for it too and covers any schema its migrations created. A password in
+  the arguments is refused.
+- **The check prints** which API image this deploy uses and with which identity.
+- **Rollback** (`playbooks/71-rollback.yml`, and the automatic rollback of a
+  failed deploy) restores the previous compose file, which holds the previous
+  API image by digest, and starts it without one-shot jobs
+  (`migrate-extension` included). A schema the custom image's migrations
+  created stays, unused, in the database.
+
+Private registry. `docker compose pull` uses root's Docker login on the host,
+and the cosign check runs in a container that needs the same login:
+
+```bash
+# on the host, as root, with a read-only (pull) token of that registry
+sudo docker login <registry host> -u <user> --password-stdin < token-file
+```
+
+then set `openctem_registry_docker_config_dir: /root/.docker` (mounted
+read-only into the cosign container). Use a token that can only read packages,
+and rotate it like the other host secrets.
+
+`tests/custom-image.sh` covers the refusals, the rendered compose file
+(api image, `migrate-extension`, the sink and its mount kept) and the cosign
+commands, including an image built on another release.
 
 ### Private registry / air-gapped
 
@@ -915,7 +989,7 @@ requirements.yml         exact collection versions
 inventories/example/     example inventory; copy it outside the repository
 docs/                    Cloudflare, firewall, docs-site page
 scripts/vendor-release.sh   add an OpenCTEM release (reads server/deploy, or api/deploy in releases from before the backend directory rename)
-tests/                   render.yml, vendor-release-layout.sh, console.sh, mail-relay.sh, audit-sink.sh, signer.sh, registry-mirror.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
+tests/                   render.yml, vendor-release-layout.sh, console.sh, mail-relay.sh, audit-sink.sh, custom-image.sh, signer.sh, registry-mirror.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
 ```
 
 Tests never touch your workstation's containers: `tests/smoke.sh` and

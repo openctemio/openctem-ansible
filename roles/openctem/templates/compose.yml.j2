@@ -3,6 +3,7 @@
 {% set admin_plane = rel.admin_plane | default(false) | bool %}
 {% set console_db_role = rel.console_db_role | default(false) | bool %}
 {% set console_service = rel.console_service | default(false) | bool %}
+{% set custom_migrate = openctem_custom_api_image | length > 0 and openctem_custom_api_migrate_command | length > 0 %}
 {# The console site: its own service (console_service) honours openctem_admin_site;
    older admin_plane releases keep the host-name-only behaviour. #}
 {% if console_service %}
@@ -289,17 +290,46 @@ services:
     restart: "no"
     logging: *logging
 
+{% if custom_migrate %}
+  # The custom server image's own migrations (openctem_custom_api_migrate_command),
+  # after the release's, before the grants and the API.
+  migrate-extension:
+    image: {{ openctem_custom_api_image }}
+    entrypoint: {{ openctem_custom_api_migrate_command[:1] | to_json }}
+    command: {{ openctem_custom_api_migrate_command[1:] | to_json }}
+    env_file:
+      - {{ openctem_secrets_dir }}/migrate.env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    networks: [data]
+    <<: *hardening
+    read_only: true
+    restart: "no"
+    logging: *logging
+
+{% endif %}
 {% if console_db_role %}
   db-grants:
     <<: *db-roles
     depends_on:
       migrate:
         condition: service_completed_successfully
+{% if custom_migrate %}
+      migrate-extension:
+        condition: service_completed_successfully
+{% endif %}
 
 {% endif %}
   # --- API ------------------------------------------------------------------------
   api:
-    image: {{ img.api }}
+{% if openctem_custom_api_image | length > 0 %}
+    # Custom server image (openctem_custom_api_image): verified against its own
+    # signing identity and release annotation before the pull.
+{% endif %}
+    image: {{ openctem_api_image }}
     environment:
       APP_NAME: openctem
       APP_ENV: production
@@ -395,6 +425,10 @@ services:
       migrate:
 {% endif %}
         condition: service_completed_successfully
+{% if custom_migrate and not console_db_role %}
+      migrate-extension:
+        condition: service_completed_successfully
+{% endif %}
 {% if openctem_job_signer | bool %}
       signer:
         condition: service_healthy

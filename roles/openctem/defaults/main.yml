@@ -21,6 +21,35 @@ openctem_images: >-
   | map('extract', openctem_releases[openctem_version])
   | map('replace', 'ghcr.io/openctemio/', (openctem_registry_mirror | trim('/') ~ '/') if openctem_registry_mirror | length > 0 else 'ghcr.io/openctemio/'))) }}
 
+# --- Custom server image (README "Custom server image") -------------------------------
+# An API image that is a build of THIS release's core with extensions (for
+# example one that provides a feature the Community image no longer includes).
+# It replaces the image of the `api` service only; web, console, gateway,
+# migrations, the job signer and the first-admin tool keep the release's
+# images. Pinned by digest, used as given (openctem_registry_mirror does not
+# rewrite it) and verified before anything is pulled with ITS OWN keyless
+# identity; its signature must also carry the annotation
+#   <openctem_custom_api_version_annotation>=<openctem_version>
+# so an image built on another release is refused. There is no way to skip
+# that check. A private registry needs `docker login` as root on the host and
+# openctem_registry_docker_config_dir for the check (README).
+#   openctem_custom_api_image: registry.example.com/org/server:v1.2.3@sha256:<64 hex>
+openctem_custom_api_image: ''
+# The exact certificate identity of the workflow that signs it (no pattern),
+# e.g. https://github.com/<org>/<repo>/.github/workflows/<file>.yml@refs/tags/<tag>
+openctem_custom_api_cosign_identity: ''
+openctem_custom_api_cosign_issuer: https://token.actions.githubusercontent.com
+# The signed annotation that names the core release (do not change).
+openctem_custom_api_version_annotation: io.openctem.core.version
+# The image's own migrations, if it has any: an argv list run once per deploy
+# as the service `migrate-extension` (the custom image, the migrator's
+# database role and env file, after `migrate`, before the grants and the API).
+# The password comes from the env file: never put one in the arguments.
+#   ["/app/extension-migrate", "-database", "postgres://openctem_migrator@postgres:5432/openctem?sslmode=require", "up"]
+openctem_custom_api_migrate_command: []
+# The api service's image as rendered: the custom image when set.
+openctem_api_image: "{{ openctem_custom_api_image if openctem_custom_api_image | length > 0 else openctem_images.api }}"
+
 # --- Networks ------------------------------------------------------------------------
 # tunnel  (internal) ingress <-> gateway only (openctem_net_tunnel, common)
 # origin  (internal) gateway <-> web, api (fixed addresses: the API trusts
@@ -113,7 +142,8 @@ openctem_captcha_turnstile_site_key: ''
 openctem_admin_audit_sink: ''
 # A release flagged admin_audit_sink_removed no longer includes the audit stream in
 # its Community images and refuses to start while ADMIN_AUDIT_SINK is set. Set this
-# to true only when you run images that include the stream; until then the preflight
+# to true only when openctem_custom_api_image is an image that includes the stream
+# (the preflight refuses it without a custom server image); until then the preflight
 # refuses openctem_admin_audit_sink for such a release.
 openctem_admin_audit_sink_provided: false
 # The first OpenCTEM release whose Community images refuse ADMIN_AUDIT_SINK*
@@ -205,7 +235,7 @@ openctem_admin_bind: ''
 openctem_admin_allowed_cidrs: [127.0.0.0/8, '::1/128', 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 'fc00::/7']
 
 # One-shot jobs of the compose file (skipped when starting an older release).
-openctem_oneshot_services: [gateway-init, datastore-tls, db-roles, db-grants, migrate]
+openctem_oneshot_services: [gateway-init, datastore-tls, db-roles, db-grants, migrate, migrate-extension]
 
 # --- Upgrade ---------------------------------------------------------------------------
 # A backup must succeed before images change on a running installation.

@@ -56,6 +56,8 @@ jobs:
         run: tests/registry-mirror.sh "$RUNNER_TEMP/registry-mirror"
       - name: Administrators' audit sink (preflight, off/file/https rendering, backup)
         run: tests/audit-sink.sh "$RUNNER_TEMP/audit-sink"
+      - name: Custom server image (preflight, rendering, own signature identity and release annotation)
+        run: tests/custom-image.sh "$RUNNER_TEMP/custom-image"
       - name: Job signer, AI triage refusal, ledger mode, console origin (preflight, rendering)
         run: tests/signer.sh "$RUNNER_TEMP/signer"
       - name: Mail relay (off by default, never an open relay, platform wiring, validation)

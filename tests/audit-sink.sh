@@ -45,8 +45,12 @@ rm_fix="@$kit/tests/fixtures/sink-removed-release.yml"
 ok -e "$rm_fix" -e "$managed"
 no -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=file
 no -e "$rm_fix" -e openctem_admin_audit_sink=$url -e openctem_secrets_dir="$work/sec"
-ok -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=file -e openctem_admin_audit_sink_provided=true
-ok -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=$url -e openctem_admin_audit_sink_provided=true -e openctem_secrets_dir="$work/sec"
+# "provided" means a custom server image that includes the stream (tests/custom-image.sh).
+custom=(-e "openctem_custom_api_image=registry.example.com/org/server:v0.99.0@sha256:$(printf 'c%.0s' $(seq 64))"
+	-e openctem_custom_api_cosign_identity=https://ci.example.com/org/server/.github/workflows/release.yml@refs/tags/v0.99.0)
+no -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=file -e openctem_admin_audit_sink_provided=true
+ok -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=file -e openctem_admin_audit_sink_provided=true "${custom[@]}"
+ok -e "$rm_fix" -e "$managed" -e openctem_admin_audit_sink=$url -e openctem_admin_audit_sink_provided=true -e openctem_secrets_dir="$work/sec" "${custom[@]}"
 # From v0.22.0 on, a release entry must be flagged admin_audit_sink_removed (an
 # entry copied from an older one would render the sink and stop the API).
 no -e '{"openctem_version":"v0.22.0","openctem_releases":{"v0.22.0":{"admin_audit_sink_required":true}}}'
@@ -62,7 +66,7 @@ echo 'ADMIN_AUDIT_SINK_SECRET=x' > "$work/host/sec/api.env"
 ok -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec"
 printf 'services:\n  api:\n    environment:\n      ADMIN_AUDIT_SINK: file:///x\n' > "$work/host/root/compose.override.yml"
 no -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec"
-ok -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec" -e openctem_admin_audit_sink_provided=true
+ok -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec" -e openctem_admin_audit_sink_provided=true "${custom[@]}"
 rm "$work/host/root/compose.override.yml"
 echo 'ADMIN_AUDIT_SINK_HEAD_INTERVAL=5m' > "$work/host/sec/extra.env"
 no -e "$rm_fix" -e openctem_root="$work/host/root" -e openctem_secrets_dir="$work/host/sec"

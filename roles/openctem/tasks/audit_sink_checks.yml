@@ -46,6 +46,22 @@
       openctem_admin_audit_sink_dir stays on disk, nothing is deleted), or run images that include the stream and
       set openctem_admin_audit_sink_provided: true.
 
+# openctem_admin_audit_sink_provided says the API image includes the stream:
+# the release's own Community image does not, so the flag needs a custom
+# server image. Without one the API would refuse to start after the images
+# changed.
+- name: Only a custom server image provides the audit stream for such a release
+  ansible.builtin.assert:
+    that: >-
+      not (openctem_releases[openctem_version].admin_audit_sink_removed | default(false) | bool)
+      or not (openctem_admin_audit_sink_provided | bool)
+      or openctem_custom_api_image | length > 0
+    fail_msg: >-
+      openctem_admin_audit_sink_provided is true, but {{ openctem_version }}'s own API image does not include the
+      administrators' audit stream and no openctem_custom_api_image is set. Set openctem_custom_api_image (an image
+      that includes the stream, with its signing identity; README, "Custom server image"), or set
+      openctem_admin_audit_sink_provided: false and unset openctem_admin_audit_sink.
+
 # The first release whose Community images refuse ADMIN_AUDIT_SINK* is v0.22.0.
 # Its versions.yml entry must say so: an entry copied from an older one
 # (admin_audit_sink_required) would render the sink and the API would refuse
