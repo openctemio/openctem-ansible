@@ -108,7 +108,7 @@ openctem_admin_audit_sink_dir: "{{ openctem_root }}/admin-audit"  # noqa: var-na
 # --- Private registry / air-gapped installs -----------------------------------------
 # Both mirror variables default to "" (pull from the public registries, nothing changes).
 # OpenCTEM images: replaces the ghcr.io/openctemio prefix, e.g.
-# registry.example.com/openctem gives registry.example.com/openctem/openctem-api@sha256:...
+# registry.example.com/openctem gives registry.example.com/openctem/openctem-server@sha256:...
 # The digest is unchanged and the cosign signature check runs against the mirror
 # reference with the SAME certificate identity and issuer, so the mirror must hold the
 # signatures (copy them with the image as OCI referrers: cosign copy or oras cp -r).
