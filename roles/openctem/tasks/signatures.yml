@@ -9,6 +9,30 @@
 # annotation openctem_custom_api_version_annotation; the release's own images,
 # api included (the signer and the first-admin tool run from it), are checked
 # as always.
+# cosign runs as its image's unprivileged user (uid 65532) with every
+# capability dropped, so it cannot read a Docker login file that only its owner
+# may read (root's /root/.docker/config.json is 0600): the private image's
+# check would fail as "UNAUTHORIZED". With a login directory, cosign runs as
+# the owner of that config.json instead (read-only root file system, no
+# capabilities, no new privileges, as before).
+- name: The registry login file for the signature check
+  ansible.builtin.stat:
+    path: "{{ openctem_registry_docker_config_dir }}/config.json"
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: openctem_registry_auth_file
+  check_mode: false
+  when: openctem_registry_docker_config_dir | length > 0
+
+- name: The registry login exists
+  ansible.builtin.assert:
+    that: openctem_registry_auth_file.stat.exists and openctem_registry_auth_file.stat.isreg
+    fail_msg: >-
+      openctem_registry_docker_config_dir is {{ openctem_registry_docker_config_dir }}, but it has no config.json:
+      run `docker login <registry>` there as the user that runs the deploy (root on the host) first.
+  when: openctem_registry_docker_config_dir | length > 0
+
 - name: Image signatures
   vars:
     openctem_cosign_run:
@@ -22,7 +46,8 @@
       - --env=HOME=/tmp
     # Registry login and CA of a private mirror or registry (both empty by default).
     openctem_cosign_registry_args: >-
-      {{ (['--env=DOCKER_CONFIG=/registry-auth',
+      {{ (['--user=' ~ openctem_registry_auth_file.stat.uid ~ ':' ~ openctem_registry_auth_file.stat.gid,
+      '--env=DOCKER_CONFIG=/registry-auth',
       '--volume=' ~ openctem_registry_docker_config_dir ~ ':/registry-auth:ro']
       if openctem_registry_docker_config_dir | length > 0 else [])
       + (['--env=SSL_CERT_FILE=/registry-ca.pem',

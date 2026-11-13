@@ -56,14 +56,17 @@ sig() { # sig <logname> [-e k=v ...]
 sig sig-default
 [ "$(wc -l <"$work/sig-default.log")" -eq 5 ] && pass "default: 5 images verified" || fail "default: 5 images verified"
 has "default: ghcr.io ref verified" "verify ghcr.io/openctemio/openctem-api@sha256:" "$work/sig-default.log"
+auth="$work/registry-auth"
+mkdir -p "$auth" && (umask 077 && echo '{"auths":{}}' >"$auth/config.json")
 sig sig-mirror -e openctem_registry_mirror=registry.example.com/oc -e openctem_third_party_registry_mirror=registry.example.com/mirror \
-	-e openctem_registry_docker_config_dir=/root/.docker -e openctem_registry_ca_file=/etc/ssl/oc-ca.pem
+	-e openctem_registry_docker_config_dir="$auth" -e openctem_registry_ca_file=/etc/ssl/oc-ca.pem
 [ "$(wc -l <"$work/sig-mirror.log")" -eq 5 ] && pass "mirror: 5 images verified" || fail "mirror: 5 images verified"
 has "mirror: verifies the mirror ref" "verify registry.example.com/oc/openctem-api@sha256:" "$work/sig-mirror.log"
 hasnt "mirror: no ghcr.io ref verified" "verify ghcr.io/openctemio" "$work/sig-mirror.log"
 has "mirror: same identity and issuer" "--certificate-identity https://github.com/openctemio/openctem/.github/workflows/docker-publish.yml@refs/tags/v0.99.0 --certificate-oidc-issuer https://token.actions.githubusercontent.com" "$work/sig-mirror.log"
 has "mirror: cosign image through the third-party mirror" "registry.example.com/mirror/sigstore/cosign/cosign:" "$work/sig-mirror.log"
-has "mirror: registry login mounted read-only" "--volume=/root/.docker:/registry-auth:ro" "$work/sig-mirror.log"
+has "mirror: registry login mounted read-only" "--volume=$auth:/registry-auth:ro" "$work/sig-mirror.log"
+has "mirror: cosign runs as the login file's owner (it is 0600)" "--user=$(id -u):$(id -g) " "$work/sig-mirror.log"
 has "mirror: CA mounted read-only" "--volume=/etc/ssl/oc-ca.pem:/registry-ca.pem:ro" "$work/sig-mirror.log"
 hasnt "default: no registry mounts" "registry-auth" "$work/sig-default.log"
 

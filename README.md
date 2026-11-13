@@ -556,8 +556,11 @@ sudo docker login <registry host> -u <user> --password-stdin < token-file
 ```
 
 then set `openctem_registry_docker_config_dir: /root/.docker` (mounted
-read-only into the cosign container). Use a token that can only read packages,
-and rotate it like the other host secrets.
+read-only into the cosign container). The cosign check runs as the owner of
+that `config.json` (root's is readable by root only), still with a read-only
+file system and no capabilities; a directory without `config.json` stops the
+run before anything changes. Use a token that can only read packages, and
+rotate it like the other host secrets.
 
 `tests/custom-image.sh` covers the refusals, the rendered compose file
 (api image, `migrate-extension`, the sink and its mount kept) and the cosign
