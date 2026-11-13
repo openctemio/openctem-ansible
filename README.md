@@ -577,10 +577,11 @@ openctem_third_party_registry_mirror: registry.example.com/mirror # replaces the
 # openctem_registry_ca_file: /etc/ssl/certs/registry-ca.pem
 ```
 
-- **OpenCTEM images** (`openctem-api`, `openctem-web`, `openctem-gateway`, `migrations`,
-  `openctem-console`): the prefix is swapped, the repository name and the digest stay, so
-  `ghcr.io/openctemio/openctem-api@sha256:...` becomes
-  `registry.example.com/openctem/openctem-api@sha256:...`. The digest is the integrity
+- **OpenCTEM images** (`openctem-server`, published as `openctem-api` up to v0.22.x,
+  `openctem-web`, `openctem-gateway`, `migrations`, `openctem-console`): the prefix is
+  swapped, the repository name and the digest stay, so
+  `ghcr.io/openctemio/openctem-server@sha256:...` becomes
+  `registry.example.com/openctem/openctem-server@sha256:...`. The digest is the integrity
   anchor: a mirror that serves other bytes fails the pull.
 - **Signatures.** The cosign check runs against the mirror reference with the same
   certificate identity and issuer as before, so the mirror must hold our signatures. They
@@ -988,7 +989,7 @@ versions.yml             every pinned version and digest
 requirements.yml         exact collection versions
 inventories/example/     example inventory; copy it outside the repository
 docs/                    Cloudflare, firewall, docs-site page
-scripts/vendor-release.sh   add an OpenCTEM release (reads server/deploy, or api/deploy in releases from before the backend directory rename)
+scripts/vendor-release.sh   add an OpenCTEM release (reads server/deploy, or api/deploy in releases from before the backend directory rename; the server image is openctem-server from v0.23.0, openctem-api before, both under the key api)
 tests/                   render.yml, vendor-release-layout.sh, console.sh, mail-relay.sh, audit-sink.sh, custom-image.sh, signer.sh, registry-mirror.sh, cloudflared-restart.sh, smoke.sh (stack in Docker-in-Docker), role-e2e.sh (roles in DinD)
 ```
 

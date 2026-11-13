@@ -59,4 +59,33 @@ audit() { # <tag> <want>
 audit v0.21.1 none
 audit v0.21.2 required
 audit v0.22.1 removed
+# The server image name comes from the release's own publish workflow
+# (openctem-server from v0.23.0, openctem-api before); both map to the key api.
+publish() { # <image name>
+  mkdir -p "$repo/.github/workflows"
+  printf 'jobs:\n  build:\n    strategy:\n      matrix:\n        image:\n          - { name: %s, legacy: %s, context: server, file: server/Dockerfile, target: production }\n          - { name: migrations, legacy: %s }\n' "$1" "''" "''" >"$repo/.github/workflows/docker-publish.yml"
+}
+g checkout -q v0.22.1
+publish openctem-api
+g add -A; g commit -qm old-name; g tag v0.22.2
+publish openctem-server
+g add -A; g commit -qm new-name; g tag v0.23.0
+# A hotfix of the older line cut after the rename keeps its line's name.
+g checkout -q v0.22.2
+g commit -q --allow-empty -m hotfix; g tag v0.22.3
+image() { # <tag> <want>
+  local got
+  got="$(OPENCTEM_REPO="file://$repo" bash "$script" --server-image "$1" 2>/dev/null)" || got=refused
+  if [ "$got" = "$2" ]; then echo "ok   $1 server image -> $got"; else echo "FAIL $1 server image: got $got, want $2"; fail=1; fi
+}
+image v0.22.2 openctem-api
+image v0.23.0 openctem-server
+image v0.22.3 openctem-api
+image v0.22.1 refused
+# Both names print under the key api of openctem_releases.
+for n in openctem-server openctem-api; do
+  key="$(bash -c 'name="$1"; case "$name" in openctem-server | openctem-api) key=api ;; *) key="${name#openctem-}" ;; esac; echo "$key"' _ "$n")"
+  [ "$key" = api ] && echo "ok   $n -> key api" || { echo "FAIL $n -> key $key"; fail=1; }
+done
+grep -qF 'openctem-server | openctem-api) key=api ;;' "$script" && echo "ok   vendor-release maps both names to api" || { echo "FAIL: vendor-release does not map both server image names to api"; fail=1; }
 exit "$fail"
