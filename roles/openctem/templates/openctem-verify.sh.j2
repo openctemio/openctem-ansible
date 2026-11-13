@@ -15,6 +15,9 @@ compose_files=(-f "$ROOT/compose.yml")
 [ -f "$ROOT/compose.cloudflared.yml" ] && compose_files+=(-f "$ROOT/compose.cloudflared.yml")
 dc() { docker compose -p "$PROJECT" --project-directory "$ROOT" "${compose_files[@]}" "$@"; }
 app='{{ openctem_app_host }}'
+# One-shot jobs (migrations, roles, a custom image's migration job) exit when
+# done: they are not long-running services (openctem_oneshot_services).
+oneshot=' {{ openctem_oneshot_services | join(' ') }} '
 {% raw %}
 fail=0
 ok() { echo "OK   $*"; }
@@ -22,7 +25,7 @@ bad() { echo "FAIL $*"; fail=1; }
 
 # Every long-running service is running and, where it has a healthcheck, healthy.
 for svc in $(dc config --services); do
-	case "$svc" in gateway-init|datastore-tls|db-roles|db-grants|migrate) continue ;; esac
+	case "$oneshot" in *" $svc "*) continue ;; esac
 	id="$(dc ps -q "$svc" 2>/dev/null)"
 	if [ -z "$id" ]; then bad "service $svc has no container"; continue; fi
 	st="$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{else}}none{{end}}' "$id")"

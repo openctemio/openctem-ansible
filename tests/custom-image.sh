@@ -110,6 +110,13 @@ assert s["api"]["image"] == img, "the custom image is used as given"
 assert s["signer"]["image"].startswith("mirror.example.com/oc/openctem-api@sha256:")
 PY
 
+# openctem-verify does not expect a running container for the image's migration
+# job (it exits when done); before, every deploy with it failed verify and rolled back.
+if grep -qE "^oneshot=' .*migrate-extension .*'$" "$work/custom/scripts/openctem-verify" &&
+	grep -qF 'case "$oneshot" in *" $svc "*) continue' "$work/custom/scripts/openctem-verify"; then
+	pass "verify skips migrate-extension"
+else fail "verify skips migrate-extension"; fi
+
 # A rollback starts the previous compose file without one-shot jobs.
 if grep -qE '^openctem_oneshot_services: .*migrate-extension' roles/openctem/defaults/main.yml; then pass "rollback skips migrate-extension"; else fail "rollback skips migrate-extension"; fi
 
@@ -147,9 +154,17 @@ has "custom: release api still verified with the release identity" "verify ghcr.
 
 if sig sig-other v0.98.0 "${custom[@]}"; then fail "custom built on another release: refused"; else pass "custom built on another release: refused"; fi
 
-if sig sig-auth v0.99.0 "${custom[@]}" -e openctem_registry_docker_config_dir=/root/.docker; then pass "custom: private registry"; else fail "custom: private registry"; fi
-has "custom: registry login mounted read-only for its check" "--volume=/root/.docker:/registry-auth:ro" "$work/sig-auth.log"
+# A registry login readable by its owner only (like root's 0600 config.json):
+# cosign runs as that owner, or it could not read it.
+auth="$work/registry-auth"
+mkdir -p "$auth" && (umask 077 && echo '{"auths":{}}' >"$auth/config.json")
+if sig sig-auth v0.99.0 "${custom[@]}" -e openctem_registry_docker_config_dir="$auth"; then pass "custom: private registry"; else fail "custom: private registry"; fi
+has "custom: registry login mounted read-only for its check" "--volume=$auth:/registry-auth:ro" "$work/sig-auth.log"
 [ "$(grep -c 'registry-auth:ro' "$work/sig-auth.log")" -eq 6 ] && pass "custom: login used for every check" || fail "custom: login used for every check"
+[ "$(grep -c -- "--user=$(id -u):$(id -g) " "$work/sig-auth.log")" -eq 6 ] && pass "custom: cosign runs as the login file's owner" || fail "custom: cosign runs as the login file's owner"
+mkdir -p "$work/no-login"
+if sig sig-nologin v0.99.0 "${custom[@]}" -e openctem_registry_docker_config_dir="$work/no-login"; then fail "custom: a login directory without config.json is accepted"; else pass "custom: a login directory without config.json is refused"; fi
+[ ! -s "$work/sig-nologin.log" ] && pass "custom: nothing verified without the login" || fail "custom: nothing verified without the login"
 
 echo
 [ "$fails" -eq 0 ] && echo "all passed" || { echo "$fails failed"; exit 1; }
