@@ -4,9 +4,12 @@
 # into the stack. cosign itself runs from an image pinned by digest.
 # With openctem_registry_mirror the signature is looked up on the mirror reference
 # (copied there as an OCI referrer) and checked against the same identity and issuer.
-- name: Verify the release signatures
-  ansible.builtin.command:
-    argv: "{{ openctem_cosign_run + openctem_cosign_registry_args + openctem_cosign_verify }}"
+# A custom server image (openctem_custom_api_image) is checked against its own
+# identity and issuer, and its signature must name this release in the
+# annotation openctem_custom_api_version_annotation; the release's own images,
+# api included (the signer and the first-admin tool run from it), are checked
+# as always.
+- name: Image signatures
   vars:
     openctem_cosign_run:
       - docker
@@ -17,17 +20,7 @@
       - --security-opt=no-new-privileges:true
       - --tmpfs=/tmp:size=64m
       - --env=HOME=/tmp
-    openctem_cosign_verify:
-      - "{{ openctem_cosign_ref }}"
-      - verify
-      - "{{ item.value }}"
-      - --certificate-identity
-      - "{{ openctem_cosign_identity }}"
-      - --certificate-oidc-issuer
-      - "{{ openctem_cosign_issuer }}"
-      - --output
-      - text
-    # Registry login and CA of a private mirror (both empty by default).
+    # Registry login and CA of a private mirror or registry (both empty by default).
     openctem_cosign_registry_args: >-
       {{ (['--env=DOCKER_CONFIG=/registry-auth',
       '--volume=' ~ openctem_registry_docker_config_dir ~ ':/registry-auth:ro']
@@ -35,10 +28,46 @@
       + (['--env=SSL_CERT_FILE=/registry-ca.pem',
       '--volume=' ~ openctem_registry_ca_file ~ ':/registry-ca.pem:ro']
       if openctem_registry_ca_file | length > 0 else []) }}
-  # Images only (the release's flags are not images), as pulled: through the mirror when set.
-  loop: "{{ openctem_images | dict2items }}"
-  loop_control:
-    label: "{{ item.key }}"
-  changed_when: false
-  check_mode: false
-  register: openctem_cosign
+  block:
+    - name: Verify the release signatures
+      ansible.builtin.command:
+        argv: "{{ openctem_cosign_run + openctem_cosign_registry_args + openctem_cosign_verify }}"
+      vars:
+        openctem_cosign_verify:
+          - "{{ openctem_cosign_ref }}"
+          - verify
+          - "{{ item.value }}"
+          - --certificate-identity
+          - "{{ openctem_cosign_identity }}"
+          - --certificate-oidc-issuer
+          - "{{ openctem_cosign_issuer }}"
+          - --output
+          - text
+      # Images only (the release's flags are not images), as pulled: through the mirror when set.
+      loop: "{{ openctem_images | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+      changed_when: false
+      check_mode: false
+      register: openctem_cosign
+
+    - name: Verify the custom server image signature and its release
+      ansible.builtin.command:
+        argv: "{{ openctem_cosign_run + openctem_cosign_registry_args + openctem_cosign_verify_custom }}"
+      vars:
+        openctem_cosign_verify_custom:
+          - "{{ openctem_cosign_ref }}"
+          - verify
+          - "{{ openctem_custom_api_image }}"
+          - --certificate-identity
+          - "{{ openctem_custom_api_cosign_identity }}"
+          - --certificate-oidc-issuer
+          - "{{ openctem_custom_api_cosign_issuer }}"
+          - --annotations
+          - "{{ openctem_custom_api_version_annotation }}={{ openctem_version }}"
+          - --output
+          - text
+      changed_when: false
+      check_mode: false
+      register: openctem_cosign_custom
+      when: openctem_custom_api_image | length > 0

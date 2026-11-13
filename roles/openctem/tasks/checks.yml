@@ -52,6 +52,9 @@
     quiet: true
   when: openctem_mail_relay | bool
 
+- name: The custom server image settings
+  ansible.builtin.import_tasks: custom_image_checks.yml
+
 - name: The administrators' audit sink settings
   ansible.builtin.import_tasks: audit_sink_checks.yml
 

@@ -1,0 +1,16 @@
+---
+# Runs only the custom server image and audit sink checks of roles/openctem (tests/custom-image.sh).
+- name: Custom server image checks
+  hosts: localhost
+  connection: local
+  gather_facts: false
+  vars_files:
+    - ../roles/openctem_common/defaults/main.yml
+    - ../roles/openctem/defaults/main.yml
+    - ../versions.yml
+    - vars.yml
+  tasks:
+    - name: Custom image checks
+      ansible.builtin.import_tasks: ../roles/openctem/tasks/custom_image_checks.yml
+    - name: Audit sink checks
+      ansible.builtin.import_tasks: ../roles/openctem/tasks/audit_sink_checks.yml

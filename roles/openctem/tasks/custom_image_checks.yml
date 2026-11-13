@@ -1,0 +1,47 @@
+---
+# Custom server image settings (tests/custom-image.sh runs this alone, with the
+# role defaults and versions.yml). Fails before the host is touched. The
+# signature and release check itself is in signatures.yml.
+- name: The custom server image is pinned by digest and has its own signing identity
+  vars:
+    # registry host[:port] / path [:tag] @sha256:<64 hex>
+    openctem_custom_ref_re: >-
+      {{ '^[a-z0-9]([a-z0-9.-]*[a-z0-9])?(:[0-9]{1,5})?(/[a-z0-9]([a-z0-9._-]*[a-z0-9])?)+'
+      ~ '(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[0-9a-f]{64}$' }}
+  ansible.builtin.assert:
+    that:
+      - openctem_custom_api_image is string
+      - openctem_custom_api_image is match(openctem_custom_ref_re)
+      - openctem_custom_api_cosign_identity is string
+      - openctem_custom_api_cosign_identity is match('^https://[^\s]+$')
+      - openctem_custom_api_cosign_issuer is match('^https://[^\s]+$')
+      - openctem_custom_api_version_annotation is match('^[a-z0-9][a-z0-9._/-]*$')
+      - openctem_verify_signatures | bool
+    fail_msg: >-
+      openctem_custom_api_image must be an image reference pinned by digest
+      (registry.example.com/org/server:vX.Y.Z@sha256:<64 hex>), with openctem_custom_api_cosign_identity set to the
+      exact certificate identity of the workflow that signs it (https://...) and openctem_custom_api_cosign_issuer an
+      https URL. Its signature is always verified: openctem_verify_signatures cannot be false with a custom image.
+  when: openctem_custom_api_image | length > 0
+
+- name: Its migrations run only with a custom image, with no secret in the arguments
+  ansible.builtin.assert:
+    that:
+      - openctem_custom_api_migrate_command is sequence and openctem_custom_api_migrate_command is not string
+      - openctem_custom_api_migrate_command | length == 0 or openctem_custom_api_image | length > 0
+      - openctem_custom_api_migrate_command | reject('string') | list | length == 0
+      - openctem_custom_api_migrate_command | length == 0 or openctem_custom_api_migrate_command[0] is match('^/[A-Za-z0-9._/-]+$')
+      - openctem_custom_api_migrate_command | select('search', '://[^/@\s]*:[^/@\s]*@') | list | length == 0
+      - openctem_custom_api_migrate_command | select('search', '[\r\n]') | list | length == 0
+    fail_msg: >-
+      openctem_custom_api_migrate_command is an argv list (strings, the first an absolute path in the image), only with
+      openctem_custom_api_image, and never with a password in it (user:password@ in a URL): the migrator's password
+      reaches the container through migrate.env (PGPASSWORD).
+
+- name: Server image of this deploy
+  ansible.builtin.debug:
+    msg: >-
+      {{ ('api: CUSTOM server image ' ~ openctem_custom_api_image ~ ', signed by ' ~ openctem_custom_api_cosign_identity
+      ~ ' with ' ~ openctem_custom_api_version_annotation ~ '=' ~ openctem_version
+      ~ ('; its migrations run as migrate-extension' if openctem_custom_api_migrate_command | length > 0 else ''))
+      if openctem_custom_api_image | length > 0 else 'api: the release image of ' ~ openctem_version }}
