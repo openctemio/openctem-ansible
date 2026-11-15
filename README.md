@@ -900,6 +900,32 @@ ansible-playbook -i $INV playbooks/50-openctem.yml -K -e apply_openctem=true -e 
 Rollback to v0.9.7 keeps working (an older API ignores `FINGERPRINT_KEY`);
 see the rollback notes below.
 
+### 6.2 Upgrading to v0.23.0
+
+Read before applying the kit version that lists v0.23.0. The kit's release
+entry needs no inventory change.
+
+1. **The server image is renamed.** From v0.23.0 the API image is
+   `ghcr.io/openctemio/openctem-server` (`openctem-api` keeps its tags up to
+   v0.22.x and gets no new ones). The entry in `versions.yml` pins the new
+   name by digest under the same key `api`, so the older entries (and a
+   rollback to v0.22.x) keep their `openctem-api` digests. The signature
+   identity is unchanged (`docker-publish.yml@refs/tags/<version>`). Nothing
+   to change in the inventory, with one exception: a private registry
+   (`openctem_registry_mirror`) must hold `openctem-server` (mirror the release
+   with its own `mirror-images.sh`) and allow-lists naming `openctem-api` need
+   the new name too.
+2. **Database migrations** (applied by the release's migration job before the
+   API starts): nine, listed in the pull request of the release entry. One
+   backfills data (`asset_ip_addresses`, batches of 2000 assets, minutes on a
+   large inventory; a range filter can miss an older asset until it ends); the
+   rest are schema only.
+3. **The least-privilege SQL changes**: the app role loses write access to the
+   migration tracking tables in every application schema. The kit re-runs the
+   script on apply; it needs no setting.
+4. **PostgreSQL 17.12** (a security release) is a separate kit setting
+   already in the kit; apply it before or with this release.
+
 ## 7. Troubleshooting
 
 | Symptom | Cause and fix |
