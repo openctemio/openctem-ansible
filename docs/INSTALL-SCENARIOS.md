@@ -204,7 +204,7 @@ package and image pulls — see [FIREWALL.md](FIREWALL.md).
 
 ## Scenario B — only the controller reaches the internet
 
-This is the common enterprise shape: your workstation or a jump host can reach
+This is the common corporate shape: your workstation or a jump host can reach
 GitHub and Docker Hub, the production VM cannot. The controller already has an
 SSH channel to the host, and both options below reuse it.
 

@@ -1,5 +1,5 @@
 ---
-# A release whose Community images no longer include the administrators' audit
+# A release whose own images do not include the administrators' audit
 # stream (admin_audit_sink_removed), layered over sink-release.yml.
 openctem_version: v0.99.0
 openctem_releases:

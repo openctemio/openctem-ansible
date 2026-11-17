@@ -165,8 +165,15 @@ its write on those tables back before the older API starts.
 
 ## Administrators' audit sink
 
-A hosted service (`MANAGED_SERVICE: "true"` in `openctem_api_env`) must copy the
-platform administrators' audit chain out of the database. Set
+Releases from v0.22.0 on do not include the administrators' audit stream in
+their own images: leave `openctem_admin_audit_sink` unset for them. A server
+refuses to start while an `ADMIN_AUDIT_SINK*` setting is present, and the kit's
+checks stop the run earlier (README, "Administrators' audit sink"). The rest of
+this section applies to earlier releases, and to a custom server image that
+includes the stream.
+
+On those, a hosted service (`MANAGED_SERVICE: "true"` in `openctem_api_env`)
+must copy the platform administrators' audit chain out of the database. Set
 `openctem_admin_audit_sink` in the inventory:
 
 - `file`: the kit creates a host directory (default `/opt/openctem/admin-audit`,

@@ -40,7 +40,7 @@ fi
 if [ "$layout_only" = true ]; then echo "$backend"; exit 0; fi
 # The administrators' audit stream, read from the release itself:
 #   removed   its server refuses ADMIN_AUDIT_SINK* without an extension that
-#             declares it (the Community images no longer include the stream);
+#             declares it (the release's own images do not include the stream);
 #   required  its server has the stream and refuses MANAGED_SERVICE=true without it;
 #   none      a release from before the stream.
 # Getting this wrong renders a sink the API refuses at start, so it is not left

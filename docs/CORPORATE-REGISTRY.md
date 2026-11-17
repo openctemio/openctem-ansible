@@ -1,7 +1,7 @@
 # Running from a registry your organisation already has
 
 This is scenario B of [INSTALL-SCENARIOS.md](INSTALL-SCENARIOS.md) in its most
-common enterprise form: the production host is not allowed out to the internet,
+common corporate form: the production host is not allowed out to the internet,
 but it is allowed to reach a container registry — Harbor, Nexus, Artifactory, a
 GitLab container registry, a cloud registry — that someone already runs, backs
 up and authenticates against.

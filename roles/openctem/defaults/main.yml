@@ -23,7 +23,7 @@ openctem_images: >-
 
 # --- Custom server image (README "Custom server image") -------------------------------
 # An API image that is a build of THIS release's core with extensions (for
-# example one that provides a feature the Community image no longer includes).
+# example one that provides a feature not included in the release's own image).
 # It replaces the image of the `api` service only; web, console, gateway,
 # migrations, the job signer and the first-admin tool keep the release's
 # images. Pinned by digest, used as given (openctem_registry_mirror does not
@@ -141,12 +141,12 @@ openctem_captcha_turnstile_site_key: ''
 # syslog+tls:// is not supported by this kit yet.
 openctem_admin_audit_sink: ''
 # A release flagged admin_audit_sink_removed no longer includes the audit stream in
-# its Community images and refuses to start while ADMIN_AUDIT_SINK is set. Set this
+# its images and refuses to start while ADMIN_AUDIT_SINK is set. Set this
 # to true only when openctem_custom_api_image is an image that includes the stream
 # (the preflight refuses it without a custom server image); until then the preflight
 # refuses openctem_admin_audit_sink for such a release.
 openctem_admin_audit_sink_provided: false
-# The first OpenCTEM release whose Community images refuse ADMIN_AUDIT_SINK*
+# The first OpenCTEM release whose own images refuse ADMIN_AUDIT_SINK*
 # (do not change): its versions.yml entry and every later one must carry
 # admin_audit_sink_removed.
 openctem_audit_sink_removed_from: 0.22.0

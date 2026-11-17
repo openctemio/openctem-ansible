@@ -16,7 +16,7 @@
 #   admin_audit_sink_required: true  the release refuses MANAGED_SERVICE=true without ADMIN_AUDIT_SINK;
 #                          the preflight then stops a managed inventory that sets no
 #                          openctem_admin_audit_sink. Set it on every release after v0.10.1.
-#   admin_audit_sink_removed: true  the release's Community images no longer include the audit stream;
+#   admin_audit_sink_removed: true  the release's own images do not include the audit stream;
 #                          the preflight refuses openctem_admin_audit_sink for it unless
 #                          openctem_admin_audit_sink_provided is true (an image that includes the stream),
 #                          and MANAGED_SERVICE=true then needs no sink. scripts/vendor-release.sh prints it

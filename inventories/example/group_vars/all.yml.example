@@ -97,7 +97,9 @@ apply_monitoring: false
 # openctem_admin_port: 8443
 # openctem_admin_bind: ''          # '' = 127.0.0.1; a private/VPN address only
 
-# Hosted service: the platform administrators' audit chain must be copied out of
-# the database (README, "Administrators' audit sink"). '' = off, 'file' or an
+# Administrators' audit sink (README, "Administrators' audit sink"). Leave it
+# unset on releases from v0.22.0 on: their own images do not include the audit
+# stream and the checks refuse the setting. On earlier releases a hosted service
+# must copy the audit chain out of the database: '' = off, 'file' or an
 # https:// URL (create <secrets dir>/admin_audit_sink_secret on the server first).
 # openctem_admin_audit_sink: https://audit.example.com/ingest
