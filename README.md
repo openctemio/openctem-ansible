@@ -426,11 +426,21 @@ turns it off at the next run.
 
 The platform console keeps a hash-chained audit log of the platform
 administrators' actions in the database. The sink writes a copy outside the
-database, so a database-level rewrite is detectable. A hosted service
-(`MANAGED_SERVICE: "true"` in `openctem_api_env`) must have one: a release that
-requires it (`admin_audit_sink_required` in `versions.yml`) refuses to start
-without, and `playbooks/50-openctem.yml` fails in its checks, before changing
-anything.
+database, so a database-level rewrite is detectable.
+
+Which releases have it:
+
+- Releases from v0.22.0 on (`admin_audit_sink_removed` in `versions.yml`): the
+  audit stream is not included in the release's own images. Leave
+  `openctem_admin_audit_sink` unset; `MANAGED_SERVICE` needs no sink. A server
+  refuses to start while an `ADMIN_AUDIT_SINK*` setting is present, and the
+  kit's checks stop the run earlier, before changing anything (see the upgrade
+  note below). The variables below then apply only with a
+  [custom server image](#custom-server-image) that includes the stream.
+- Earlier releases that require it (`admin_audit_sink_required`): a managed
+  service (`MANAGED_SERVICE: "true"` in `openctem_api_env`) must have a sink;
+  the server refuses to start without, and `playbooks/50-openctem.yml` fails in
+  its checks, before changing anything.
 
 | Variable | Default | Meaning |
 |---|---|---|
@@ -461,8 +471,9 @@ anything.
 - `syslog+tls://` is **not supported by this kit yet** (the API needs CA and
   client certificate files mounted into the container); the checks refuse it.
 
-Upgrade note, releases flagged `admin_audit_sink_removed`. The Community
-images of such a release no longer include the audit stream and refuse to
+Upgrade note, releases flagged `admin_audit_sink_removed`. The images
+of such a release do not include the audit stream (it is provided by an
+optional module) and refuse to
 start while `ADMIN_AUDIT_SINK` (or any `ADMIN_AUDIT_SINK_*`) is set;
 `MANAGED_SERVICE=true` no longer needs a sink. For such a release the checks
 refuse a non-empty `openctem_admin_audit_sink` (failing before the host is
@@ -496,7 +507,7 @@ inventory, the compose file or git.
 
 An installation can run a custom build of the platform API: an image that is
 this release's core with extensions compiled in (for example one that
-provides a feature the Community image no longer includes, such as the
+provides a feature not included in the release's own image, such as the
 administrators' audit stream from a release flagged `admin_audit_sink_removed`).
 It replaces the image of the `api` service only; web, console, gateway,
 migrations, the job signer and the first-admin tool keep the release's
