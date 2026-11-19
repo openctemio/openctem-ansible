@@ -937,6 +937,15 @@ entry needs no inventory change.
 4. **PostgreSQL 17.12** (a security release) is a separate kit setting
    already in the kit; apply it before or with this release.
 
+### 6.3 v0.21.1 (hotfix of the v0.21 line)
+
+v0.21.1 fixes sign-in for people who use a Google, GitHub or Microsoft
+account in an organization that requires two-factor authentication. It is for
+installs that stay on v0.21.x; v0.23.0 remains the newest release. Images
+only: no database migration, and the gateway files and least-privilege SQL are
+the same as v0.21.0. No inventory change besides `openctem_version`; rollback
+to v0.21.0 with `playbooks/71-rollback.yml`.
+
 ## 7. Troubleshooting
 
 | Symptom | Cause and fix |
