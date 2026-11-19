@@ -52,6 +52,16 @@ openctem_releases:
     gateway: ghcr.io/openctemio/openctem-gateway@sha256:550b4eb6de023e1fabbe2ce3a9f458ca8f58f20a8cec271f87e7aba679441bc6
     migrations: ghcr.io/openctemio/migrations@sha256:be6dc84351d89dccdbfc8e92d2cfd757d53ee0a830bb0fc12e18a2e97715415b
     console: ghcr.io/openctemio/openctem-console@sha256:4f77aee704d640a06ccce4878946a6b626925ca91cee27999a0a02e68022a88b
+  v0.21.1:
+    admin_plane: true
+    console_db_role: true
+    console_service: true
+    admin_audit_sink_required: true
+    api: ghcr.io/openctemio/openctem-api@sha256:74538c6672f955f6af0c5830325c282aff682b138475e222d70ba68e073213bb
+    web: ghcr.io/openctemio/openctem-web@sha256:7a5780af80f37514f84a474fae7fec284a52f6952afcbb1e04dae95162834e04
+    gateway: ghcr.io/openctemio/openctem-gateway@sha256:ef8be7af21ebd2fd610dd04b9c2914fa9e09938df522e79b8b3bd675322940b8
+    migrations: ghcr.io/openctemio/migrations@sha256:6a39b011bfa4fb2a60514e7849957ef3d1ba48a8b5a569ce6358d8d37cac553e
+    console: ghcr.io/openctemio/openctem-console@sha256:e31525f26035ec199847f5844215719853f87bf73dca28e48dd57cc2e9ed2f19
   v0.21.0:
     admin_plane: true
     console_db_role: true
